@@ -46,6 +46,10 @@ Workflow and status:
      Colour: `--frame COLOR_330200` (03 33 02 00) sent; device echoed it, colour
      turned the TEXT colour red (user-confirmed). The leading 03 is still
      unexplained and is never varied.
+   Captures 10-17 (display modes) analysed: `ef` 9-byte form `sel RGB 00 02
+     major sub ff`; major 00 static / 01 scroll; sub meaning depends on major.
+     NOT in the CLI yet and nothing sent. Before the long-text tests, set the
+     mode in TempoHub (then quit it) and record it with each result.
    D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar
      text "..." [--color RRGGBB] | color RRGGBB`; default is a dry run, --send
      writes after asking "TempoHub closed?" (or --yes-i-closed-tempohub),

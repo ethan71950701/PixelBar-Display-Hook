@@ -411,6 +411,102 @@ closed, user watching) sent one frame that was NOT in any capture:
   `Hello`. Longer text is unverified; the CLI limits text to `--max-bytes`
   (default 6) and the hard limit is 55 bytes (one frame).
 
+## Captures 10-17: display modes (2026-10-25)
+
+Captured by the user in TempoHub's text DIY screen (device address 11). Modes
+are two levels: a main mode, scroll or static, and a sub-option inside it
+(scroll: left-to-right, right-to-left; static: left, centre, right, justified).
+Per the user, clicking is enough: no apply/save button. Baseline: static
+centre, text `Hello`, text colour `#330200`. The labels below are the user's
+description of what they clicked; the bytes are from the captures. Nothing was
+sent to the device by us. All 30 frames rebuild byte-exact from
+(Report ID, tag, cmd, payload) (confirmed).
+
+### No new command, but `ef` has a 9-byte form (confirmed)
+
+Only `ef`, `e7`, `ee`, `77`, `66` appear. The main/sub choice is sent with
+`ef`, in a 9-byte payload (the colour change seen before used a 4-byte one):
+
+    sel | R G B | 00 | 02 | major | sub | ff
+    p0    p1-p3   p4   p5   p6      p7    p8
+
+| Capture | User action | `ef` OUT payload | `ef` IN reply |
+|---|---|---|---|
+| 10 | static centre -> scroll (default sub) | `02 33 02 00 00 02 01 ff ff` | `02 33 02 00 00 02 01 00 ff` |
+| 11 | scroll -> right-to-left | `01 33 02 00 00 02 01 01 ff` | same as sent |
+| 12 | scroll -> left-to-right | `01 33 02 00 00 02 01 00 ff` | same as sent |
+| 13 | scroll -> static (default sub) | `02 33 02 00 00 02 00 ff ff` | `02 33 02 00 00 02 00 01 ff` |
+| 14 | static centre -> left | `01 33 02 00 00 02 00 00 ff` | same as sent |
+| 15 | static left -> right | `01 33 02 00 00 02 00 02 ff` | same as sent |
+| 16 | static right -> justified | `01 33 02 00 00 02 00 03 ff` | same as sent |
+| 17 | static justified -> centre | `01 33 02 00 00 02 00 01 ff` | same as sent |
+
+### Field meanings
+
+Byte values (each correlated with the user's action in the captures):
+
+| Field | Value | Meaning | Status |
+|---|---|---|---|
+| `major` (p6) | `00` | static | confirmed (13, 14-17) |
+| `major` (p6) | `01` | scroll | confirmed (10, 11, 12) |
+| `sub` (p7), scroll | `00` | left-to-right | confirmed (12) |
+| `sub` (p7), scroll | `01` | right-to-left | confirmed (11) |
+| `sub` (p7), static | `00` | left | confirmed (14) |
+| `sub` (p7), static | `01` | centre | confirmed (17; also default after 13) |
+| `sub` (p7), static | `02` | right | confirmed (15) |
+| `sub` (p7), static | `03` | justified | confirmed (16) |
+
+- Main mode and sub-option are TWO FIELDS of ONE command (`ef`), not two
+  commands and not one byte (confirmed): `major` at p6, `sub` at p7. The
+  meaning of `sub` depends on `major`.
+- `sel` (p0): `02` when the main mode was clicked (10, 13), `01` for every
+  sub-option click (11, 12, 14, 15, 16, 17), and `03` in the earlier 4-byte
+  colour frames. The correlation is confirmed (2/2, 6/6, 4/4). That `sel` says
+  "which field is being set" is a guess.
+- This explains the earlier unknown `03` of the colour command: it is the
+  `sel` value for "colour" (correlation confirmed, interpretation guess).
+- Changing the main mode resets the sub-option to a default (confirmed from the
+  replies): the app sends `sub = ff` and the device answers `00` (left-to-right)
+  after switching to scroll (10), `01` (centre) after switching to static (13).
+  Whether `ff` means "default" or the device always resets is not known.
+- Clicking the main mode sends one `ef` then one `e7` read-back (2 OUT, 2 IN
+  frames); clicking a sub-option sends one `ef` only (confirmed).
+- Capture 13 (to static) and capture 17 (back to centre) are NOT the same frame:
+  `02 33 02 00 00 02 00 ff ff` versus `01 33 02 00 00 02 00 01 ff`. They end in
+  the same state (replies differ only in `sel`) (confirmed).
+- p4 `00`, p5 `02` and p8 `ff` never changed in these captures. p5 `02` equals
+  `ee` byte 5 below; guess: a "screen mode" id with `02` = custom text.
+- The 9-byte frames carry the current colour (`33 02 00` here). Whether the
+  device applies the RGB from a `sel = 01/02` frame (i.e. would a different
+  RGB change the colour) is NOT known: it was never varied.
+
+### Status reply `ee` and read-back `e7` (confirmed correlations)
+
+- `ee` reply layout: `00 | R G B | 00 | 02 | major | sub | ff 01 00 00`, the
+  same fields as the `ef` payload with `p0 = 00`. The `sub` byte (index 7)
+  tracked the state before each capture: centre `01` before 14, left `00`
+  before 15, right `02` before 16 (3/3). `major` (index 6) was `00` in all of
+  them (all static). A scroll state was not read with `ee`.
+- This answers the earlier question about `ee` bytes 5 and 7: byte 7 is the
+  sub-option, byte 6 the main mode, byte 5 is `02` in all of these (earlier,
+  before the first `e8` of capture 02, bytes 5 and 7 were `01` and `00`, after
+  it `02` and `01`: i.e. after sending text, the status read static/centre
+  with p5 `02`; what byte 5 `01` meant is unknown).
+- `e7` read-back reply `00 XX 32 <count> <text>`: `XX` was `20` in scroll mode
+  (10) and `10` in static mode (13, and every earlier capture) (confirmed, 2
+  samples). The `32` stayed constant.
+- Not in these captures: any `e8`. So nothing new is known about the leading
+  `00` of the `e8` payload.
+- Incidental: the app re-sent the clock (`77`) in 16, and the device pushed an
+  unsolicited `66` with payload `10 08` (earlier `10 0b`); meaning unknown.
+
+### Consequences (not tested)
+
+- To set a mode from our code the matching `ef` frame must be sent; nothing
+  suggests `e8` alone changes it, but that is not established either way (the
+  `ee` status after the first text in capture 02 read static/centre).
+- None of this was sent by us; `pixelbar` does not build these frames yet.
+
 ## Unknowns (open questions, 2026-10-25)
 
 Things that are NOT known. Nothing below is a finding; where there is a hint
@@ -439,9 +535,11 @@ the safe refresh rate is far lower than if it only touches RAM.
 
 ### 2. The meaning of `03` (and the other constant bytes)
 
-- `ef` payload = `03` + R G B. Only `03` has ever been seen: capture 05, 08,
-  09 (TempoHub) and our own send. No sample ever differed, so there is no
-  evidence what it means. Guesses (zone, slot, mode) have no support.
+- UPDATE after captures 10-17: `ef` has a first byte `sel` = `01`/`02`/`03`;
+  `03` goes with the colour change, `02` with the main-mode click, `01` with a
+  sub-option click (correlation confirmed, see "Captures 10-17"). Before that
+  only `03` had been seen, so there was no evidence what it meant. Still
+  unknown: what the device does if `sel` and the rest do not agree.
 - Same situation for: the leading `00` of the `e8` payload (always `00`: A,
   AB, ABC, 你好, Hello), and the `00 00 ff ff ff` tail of the `ef` reply
   (identical in all four colour replies).
@@ -463,29 +561,25 @@ the safe refresh rate is far lower than if it only touches RAM.
   reject), and TempoHub's own length limit (a capture of a long text typed in
   TempoHub would show it).
 
-### 4. Display options in TempoHub (reported by the user, not verified)
+### 4. Display options in TempoHub (scroll/static + alignment)
 
-The user says the official app has, for the text display, one choice between
-scrolling and static text, and another between centre, left and right
-alignment. None of this has been captured, so:
+The command bytes are now known: see "Captures 10-17". What remains open:
 
-- The command bytes for these options are unknown. No captured command is known
-  to carry them. Candidates only (no evidence, all constants so far): the
-  leading `00` of the `e8` payload, the leading `03` of `ef`, or the `ee`
-  status bytes 5 and 7 (`01/00` -> `02/01` after the first `e8`).
 - Consequence for the length tests: what the screen shows for long text
-  (whole, cut off, scrolling) depends on the device's current scroll/alignment
-  setting, which we neither know nor control from our code. A result such as
-  "truncated" or "scrolled" therefore describes the setting in force, not a
-  protocol limit. The setting in force at test time must be recorded with each
-  result.
-- To learn the command bytes: capture TempoHub changing ONE option at a time
-  (scroll -> static, then static -> scroll, then left, centre, right), same
-  method as the text captures, and diff the frames.
+  (whole, cut off, scrolling) depends on the device's current main mode and
+  sub-option. A result such as "truncated" or "scrolled" describes the setting
+  in force, not a protocol limit. The setting at test time must be recorded
+  with each result (set it in TempoHub beforehand; our `e8` is not known to
+  change it).
+- Whether `e8` itself resets or changes the mode: not established.
+- Whether the device applies the RGB inside a `sel = 01/02` frame: not known.
+- Not captured: the scroll speed, if TempoHub has such a setting.
 
 ### 5. Other open items
 
-- `ee` status reply bytes 5 and 7 (`01/00` -> `02/01` after the first `e8`).
+- `ee` status byte 5: `01` before the first `e8` of capture 02, `02` after it
+  and in every later capture; meaning unknown (byte 6 = main mode and byte 7 =
+  sub-option are explained in "Captures 10-17").
 - The 44-byte `6a` table and the other device-info replies (`d8`, `65`, `66`,
   `d5`, `68`, `84`, `86`, `d7`, `f0`, `c6`).
 - Images: no image command has been captured at all.
