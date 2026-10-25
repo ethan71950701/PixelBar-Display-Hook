@@ -37,7 +37,8 @@ Workflow and status:
    Staged, each stage needs the user's OK before the next:
    A (DONE) pixelbar/frames.py + `--dry-run`, byte-exact vs captures
      (python -m unittest discover -s tests -t .). No device access exists in code.
-   B (not started) replay tool: send only the captured "A" frame, unmodified,
-     with the user present watching the screen.
+   B (script written, not yet run with --send) tools/replay_frame.py: sends only
+     the captured "A" frame, unmodified; needs --send --yes-i-closed-tempohub,
+     TempoHub closed, user watching the screen.
    C (not started) after B succeeds: send self-built AB, ABC.
 Update this status list as steps finish.
