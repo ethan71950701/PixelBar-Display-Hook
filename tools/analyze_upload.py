@@ -58,7 +58,7 @@ def entropy(data):
 
 
 def read_upload(frames):
-    up = {"chunks": {}, "acked": set(), "t": {}}
+    up = {"chunks": {}, "acked": set(), "t": {}, "wrote": {}, "ack_at": {}, "starts": 0}
     for num, t, addr, data in frames:
         cmd, ln, payload, ck, exp = ac.parse(data)
         if cmd != CMD_UPLOAD:
@@ -67,21 +67,53 @@ def read_upload(frames):
         if data[0] == 0x2E:
             if len(payload) == 6 and payload[:2] == b"\x00\x00":
                 up["size"], up["t"]["start"] = int.from_bytes(payload[2:], "big"), t
+                up["starts"] += 1
             elif payload[:2] == b"\x00\x02":
-                up["chunks"][int.from_bytes(payload[2:4], "big")] = payload[4:]
+                seq = int.from_bytes(payload[2:4], "big")
+                up["chunks"][seq] = payload[4:]
+                up["wrote"][seq] = t
                 up["t"].setdefault("first_chunk", t)
             elif payload == b"\x00\x04":
                 up["t"]["end"] = t
         elif payload[:2] == b"\x00\x01":
             up["ready"], up["t"]["ready"] = payload, t
         elif payload[:2] == b"\x00\x03":
-            up["acked"].add(int.from_bytes(payload[2:4], "big"))
+            seq = int.from_bytes(payload[2:4], "big")
+            up["acked"].add(seq)
+            up["ack_at"][seq] = t
         elif payload == b"\x00\x05":
             up["t"]["done"] = t
     return up
 
 
-def report(path, png_dir):
+DIGITS = {"0": ("111", "101", "101", "101", "111"), "1": ("010", "110", "010", "010", "111"), "2": ("111", "001", "111", "100", "111"),
+          "3": ("111", "001", "111", "001", "111"), "4": ("101", "101", "111", "001", "001"), "5": ("111", "100", "111", "001", "111"),
+          "6": ("111", "100", "111", "101", "111"), "7": ("111", "001", "001", "001", "001"), "8": ("111", "101", "111", "101", "111"),
+          "9": ("111", "101", "111", "001", "111")}
+MARGIN = 10
+
+
+def contact_sheet(images):
+    """All images stacked top to bottom (frame numbers from 1 in the left margin), separated by grey bars."""
+    rows = []
+    for k, image in enumerate(images):
+        frame = to_rows(image)
+        for y in range(HEIGHT):
+            rows.append([0] * MARGIN + frame[y])
+        for d, ch in enumerate(str(k + 1)):          # frame number, 3x5 digits, in the margin
+            for gy, line in enumerate(DIGITS[ch]):
+                for gx, bit in enumerate(line):
+                    if bit == "1":
+                        rows[len(rows) - HEIGHT + 2 + gy][1 + d * 4 + gx] = 200
+        rows += [[90] * (MARGIN + WIDTH) for _ in range(3)]
+    return rows
+
+
+def ms(seconds):
+    return f"{seconds * 1000:.0f}"
+
+
+def report(path, png_dir, sheet_dir=None):
     name = os.path.basename(path)
     frames = ac.read_frames(ac.find_tshark(), path, None)
     out = [f for f in frames if f[3][0] == 0x2E]
@@ -94,11 +126,14 @@ def report(path, png_dir):
     for num, t, addr, data in out:
         cmd, ln, payload, ck, exp = ac.parse(data)
         if cmd == 0xEF and ln == 9:
-            print(f"   ef (scene select?) t={t:.2f}s payload {bytes(payload).hex(' ')}")
+            p = bytes(payload)
+            print(f"   ef (scene select?) t={t:.2f}s payload {p.hex(' ')} (sel {p[0]:02x}, p5 {p[5]:02x}, p6 {p[6]:02x}, p7 {p[7]:02x})")
     if CMD_UPLOAD not in cmds:
         print("   no cmd 0x17 upload frames")
         return None
     up = read_upload(frames)
+    if up["starts"] != 1:
+        print(f"   WARNING: {up['starts']} upload start frames in this capture; the numbers below mix them")
     seqs = sorted(up["chunks"])
     blob = b"".join(up["chunks"][s] for s in seqs)
     last = seqs[-1] if seqs else None
@@ -109,21 +144,44 @@ def report(path, png_dir):
           f"every chunk but the last acked {up['acked'] == set(seqs) - {last}}; end acked {'done' in t}")
     print(f"   timing: start {t.get('start', 0):.3f}s, ready {t.get('ready', 0):.3f}s, chunks {t.get('first_chunk', 0):.3f}s .. end {t.get('end', 0):.3f}s, "
           f"done {t.get('done', 0):.3f}s -> {t.get('done', 0) - t.get('start', 0):.2f}s total")
+    wrote, ack_at = up["wrote"], up["ack_at"]
+    latency = sorted(ack_at[s] - wrote[s] for s in ack_at if s in wrote)
+    times = sorted(wrote.values())
+    gaps = sorted(b - a for a, b in zip(times, times[1:]))
+    if latency and gaps:
+        print(f"   device acknowledgement delay per chunk (ms): min {ms(latency[0])}, median {ms(latency[len(latency) // 2])}, max {ms(latency[-1])}; "
+              f"host spacing between chunks (ms): min {ms(gaps[0])}, median {ms(gaps[len(gaps) // 2])}, max {ms(gaps[-1])}")
+        print(f"   start -> ready {ms(t['ready'] - t['start'])} ms, end -> done {ms(t['done'] - t['end'])} ms; "
+              f"{len(blob) / (t['done'] - t['start']):.0f} bytes/s over the whole upload")
     n = len(blob) // (RECORD_HEADER + RECORD_DATA)
     recs = [blob[i * 133:(i + 1) * 133] for i in range(n)]
+    nn = [int.from_bytes(r[1:3], "big") for r in recs]
     print(f"   records: {n} x 133 bytes (+{len(blob) - n * 133} left over), first header {recs[0][:5].hex(' ')}")
-    print(f"   record header T/XX: T={sorted({r[0] for r in recs})} XX={sorted({r[3:5].hex() for r in recs})} index "
-          f"{'contiguous' if [int.from_bytes(r[1:3], 'big') for r in recs] == list(range(n)) else 'NOT contiguous'}")
+    print(f"   record header T/XX: T={sorted({r[0] for r in recs})} XX={sorted({r[3:5].hex() for r in recs})} NN {nn[0]}..{nn[-1]} "
+          f"{'contiguous' if nn == list(range(n)) else 'NOT contiguous'}")
     data = b"".join(r[RECORD_HEADER:] for r in recs)
     zero = data.count(0)
     print(f"   data: {len(data)} bytes = {len(data) / IMAGE_BYTES:g} image(s) of {WIDTH}x{HEIGHT}; zero bytes {100 * zero / len(data):.0f}%, "
           f"entropy {entropy(data):.2f} bits/byte, sha256 {hashlib.sha256(data).hexdigest()[:16]}")
-    if png_dir and len(data) % IMAGE_BYTES == 0:
-        os.makedirs(png_dir, exist_ok=True)
-        for k in range(len(data) // IMAGE_BYTES):
-            f = os.path.join(png_dir, f"{name[:-5]}_img{k}.png")
-            write_png(f, to_rows(data[k * IMAGE_BYTES:(k + 1) * IMAGE_BYTES]))
-            print("   wrote", f)
+    if len(data) % IMAGE_BYTES == 0:
+        images = [data[k * IMAGE_BYTES:(k + 1) * IMAGE_BYTES] for k in range(len(data) // IMAGE_BYTES)]
+        lit = [sum(bin(b).count("1") for b in im) for im in images]
+        print(f"   images: {len(images)}; lit pixels per image {lit}")
+        if len(images) > 1:
+            step = [sum(bin(a ^ b).count("1") for a, b in zip(images[k], images[k + 1])) for k in range(len(images) - 1)]
+            print(f"   pixels that differ between image k and k+1 (k = 1..): {step}; identical images: "
+                  f"{[(a + 1, b + 1) for a in range(len(images)) for b in range(a + 1, len(images)) if images[a] == images[b]] or 'none'}")
+        if png_dir:
+            os.makedirs(png_dir, exist_ok=True)
+            for k, im in enumerate(images):
+                f = os.path.join(png_dir, f"{name[:-5]}_img{k}.png")
+                write_png(f, to_rows(im))
+                print("   wrote", f)
+        if sheet_dir:
+            os.makedirs(sheet_dir, exist_ok=True)
+            f = os.path.join(sheet_dir, f"{name[:-5]}_sheet.png")
+            write_png(f, contact_sheet(images), 3)
+            print("   wrote contact sheet", f, f"({len(images)} frame(s), numbered from 1 from the top)")
     return hashlib.sha256(data).hexdigest()
 
 
@@ -131,10 +189,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("captures", nargs="+")
     ap.add_argument("--png-dir", help="write the images here (keep it outside the repository)")
+    ap.add_argument("--sheet-dir", help="write one contact sheet per capture here, all frames stacked and numbered (outside the repository)")
     args = ap.parse_args()
     digests = {}
     for path in args.captures:
-        digests[os.path.basename(path)] = report(path, args.png_dir)
+        digests[os.path.basename(path)] = report(path, args.png_dir, args.sheet_dir)
     same = collections.defaultdict(list)
     for name, d in digests.items():
         if d:

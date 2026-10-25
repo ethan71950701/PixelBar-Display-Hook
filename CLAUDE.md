@@ -87,6 +87,10 @@ Workflow and status:
      top is confirmed on the screen. Budget file = 2. The image was drawn in the
      same greyish blue (336699) as Hello; restored through TempoHub afterwards
      (screen back to 兼职成年人): both user-confirmed.
+     Captures 30-33 (animation scenes) analysed read-only: 1 / 2 / 2 / 7 images,
+     up to 7448 bytes; XX XX is not tied to the image count (no evidence what
+     it is); T == ef p6 in all 8 uploads; the device sets the upload pace
+     (~46 ms per 50-byte chunk). See "Animation scenes" in docs/protocol.md.
      Prepared (nothing sent): tools/png_upload.py --dry-run converts a 256x32
      PNG (outside the repo) to the bitmap and shows the whole upload and its
      differences from capture 20; there is no send path for converted images.

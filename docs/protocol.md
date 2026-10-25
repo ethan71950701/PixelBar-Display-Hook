@@ -1200,6 +1200,137 @@ upload writes flash. The `ef` frame's colour bytes equalled the colour already
 in force, so this does not show whether the speaker applies them. Upload budget
 used: 2 of 5.
 
+## Animation scenes: captures 30-33 (read-only analysis, 2026-10-25)
+
+Four more scenes uploaded by TempoHub (the user clicked another scene first,
+then the target, waited for the progress bar and 5 more seconds). Each file
+holds exactly one `ef` frame and one upload (one start frame). The user's
+message gave the scene names and a placeholder for how long each animation
+loop lasts ("动画一圈约【你填】秒"), which was left unfilled in all four, so no
+loop time is known: every question below that needs it is answered "no
+evidence in the existing captures". Nothing was sent to the device. The
+contact sheets (all frames stacked and numbered from 1 at the top) and the
+single images are PNG files in `C:\pixelbar-raw\render\`, not in the
+repository; `python tools/analyze_upload.py CAPTURE.pcap --sheet-dir DIR
+[--png-dir DIR]` regenerates them.
+
+### The numbers (all frames of every capture validated: size, sequence, acknowledgements)
+
+| Capture | Scene (the user's label) | Upload bytes | Images | `NN` | `T` | `XX XX` | `ef` `p5` `p6` `p7` | Upload time |
+|---|---|---|---|---|---|---|---|---|
+| 30 | cat, left column 4th (five stretching cats) | 1064 | 1 | 0..7 | `04` | `ffff` | `01` `04` `06` | 1.33 s |
+| 31 | study, right column 2nd (自愿学习, stripes) | 2128 | 2 | 0..15 | `03` | `0064` | `01` `03` `03` | 2.55 s |
+| 32 | work, 「下一站 翻身」 | 2128 | 2 | 0..15 | `02` | `0064` | `01` `02` `1e` | 2.55 s |
+| 33 | game, right column last (460ms) | 7448 | 7 | 0..55 | `01` | `0064` | `01` `01` `11` | 7.97 s |
+
+Images = data bytes / 1024 (image bytes = 128 per record, 8 records per image;
+the upload bytes also count the 5-byte record headers: 133 per record). The
+longest upload in all captures so far is capture 33: 7448 bytes, 56 records, 149
+chunks of 50 bytes, 7 images, all acknowledged.
+
+### What the images are (rendered with the confirmed 256x32 layout)
+
+Read from the contact sheets and the pixel counts; the descriptions are the
+assistant's reading of the pictures, the counts are measured.
+
+- 30: ONE image, a row of five cats in different stretching poses. A single
+  image holds all five; no second frame is uploaded.
+- 31: two images. A cup with steam, the characters 自愿学习 and a band of
+  diagonal stripes; the stripes differ between the frames (977 pixels differ).
+- 32: two images that are almost the same: a small figure, a dotted line ending
+  in a dot, and the characters 下一站 翻身; only 18 pixels differ.
+- 33: seven images: a box with the text 460 ms moves from the left to the right
+  with a trail of earlier positions behind it. Pixels that differ between
+  consecutive images: 584, 590, 984, 992, 440, 474; no two images are
+  identical. The "460ms" is part of the picture, drawn in the image; no record
+  header field and no `ef` field of the upload has the value 460.
+- Earlier: 21 is two images (52 pixels differ), 23 and 20 are single images.
+
+### Do the number of images and `XX XX` belong together?
+
+Over all seven uploads seen so far:
+
+| Images | `XX XX` seen |
+|---|---|
+| 1 | `0064` (20, plain text), `ffff` (23 and 30, cats) |
+| 2 | `0030` (21, study), `0064` (31 study, 32 work) |
+| 7 | `0064` (33) |
+
+- `XX XX` does not follow the image count: one image has `0064` or `ffff`, two
+  images have `0030` or `0064`. It is not a frame count (confirmed from these
+  values).
+- It does not follow the category either: 21 and 31 are both "study", both two
+  images, and differ (`0030` against `0064`). It is a per-scene value
+  (confirmed: 21 and 22 are the same scene and identical).
+- Whether it is a frame interval, a number of loops or something else: no
+  evidence in the existing captures. The loop times needed to compare (the
+  user's placeholder) are missing. The label "460ms" of capture 33 is not
+  `XX XX` (it is `0064`, which is 100, not 460), and it is drawn in the image.
+- A test the user could do without any upload: if `XX XX` were the delay of one
+  frame in a fixed unit, the loop of 21 (two images, `0030` = 48) would be
+  about 2.1 times shorter than the loop of 31 or 32 (two images, `0064` =
+  100), and the loop of 33 (seven images of `0064`) would be about 3.5 times
+  the loop of 31 or 32. This is a prediction of that hypothesis, not a result.
+- The single-image scenes 23 and 30 (both `ffff`) show that a scene that looks
+  like an animation (a row of poses) can be one image; if the device moves
+  anything in them, the motion does not come from several uploaded frames
+  (whether it moves at all: no evidence, not observed).
+
+### Fields in 21 (two images) against 23 (one image) and the new captures
+
+| Field | 21 | 23 | 30 | 31 | 32 | 33 |
+|---|---|---|---|---|---|---|
+| images | 2 | 1 | 1 | 2 | 2 | 7 |
+| `T` = `ef` `p6` | `03` | `04` | `04` | `03` | `02` | `01` |
+| `XX XX` | `0030` | `ffff` | `ffff` | `0064` | `0064` | `0064` |
+| `ef` `p7` | `09` | `04` | `06` | `03` | `1e` | `11` |
+| `ef` `p5` | `01` | `01` | `01` | `01` | `01` | `01` |
+
+- `T` equals the `ef` byte `p6` in all eight uploads seen (20, 21, 22, 23, 30,
+  31, 32, 33) (confirmed). By the user's labels the values follow the category:
+  work `02` (20 and 32), study `03` (21, 22, 31), cat `04` (23, 30), game `01`
+  (33); the clock (`00`) and spectrum (`08`) captures upload nothing. This is a
+  correlation over the user's category names, not a documented meaning.
+- `p7` differs in every scene, also within a category (work: `21`, `1e`; study:
+  `09`, `03`; cat: `04`, `06`). It does not follow the position the user gave
+  in the list (cat left column 3rd = `04`, 4th = `06`). Its meaning: no
+  evidence.
+- `p5` was `01` in every scene capture (and `02` in text mode).
+
+### Upload time against bytes: the device sets the pace
+
+| Bytes | Chunks | Upload time (start frame to final acknowledgement) |
+|---|---|---|
+| 1064 | 22 | 1.32-1.42 s |
+| 2128 | 43 | 2.55-2.63 s |
+| 7448 | 149 | 7.97 s |
+
+- The time grows with the number of chunks: about 0.3 s fixed plus 46-52 ms per
+  chunk. The speaker's acknowledgement of a chunk took 42-48 ms at the median
+  (15-65 ms for ordinary chunks), and TempoHub wrote the next chunk 2-9 ms
+  after it (median) after receiving the acknowledgement. So the speaker's
+  acknowledgement time sets the pace; about 1.1 kB/s is the fastest seen over
+  a whole upload (7448 bytes in 7.97 s: 934 bytes/s). (The 2 ms replies noted
+  earlier belong to the text command `e8`, not to the upload chunks.)
+- Some acknowledgements were slower: 115-128 ms. In capture 33 they were
+  chunks 21, 42, 63, 85 and 106, the chunks that contain the boundary between
+  image 1 and 2, 2 and 3, 3 and 4, 4 and 5, 5 and 6 (multiples of 1064 bytes
+  of the stream); the sixth boundary (chunk 127) took 56 ms, an ordinary time.
+  In the two-image captures (21, 31, 32) the one boundary chunk (21) was slow
+  as well. All the other chunks of 33 took at most 65 ms. A per-image extra
+  step in the speaker is one reading that fits; that it is a flash write is
+  only a guess.
+- The start frame was answered after 104-207 ms and the end frame after
+  133-214 ms (captures 20-23 and 30-33).
+- Upper limit of the device: no evidence. 7 images (7448 bytes) were accepted
+  without any change of behaviour; the speaker never refused or slowed down in
+  a way that looks like a limit. How many frames it can keep: no evidence in
+  the existing captures (at least 7 images were uploaded and acknowledged; what
+  the speaker does with them and whether it plays all 7 is not in the captures).
+- Whether the host can set the interval between frames: no evidence. `XX XX`
+  is sent by the host and differs between scenes, but nothing shows that it is
+  an interval.
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The
@@ -1208,18 +1339,18 @@ upload should only repeat the captured values.
 
 | Field | Confirmed | Not known | Risk if changed (guess) |
 |---|---|---|---|
-| Record header `T` (`02`, `03`, `04`) | same in every record of an upload; equals `ef` byte `p6` in captures 20, 21, 22, 23; different per scene | what it means (type, category, slot?) | the speaker may refuse the upload, or file the image under another scene, or overwrite another scene's data; we do not know whether the speaker keys scenes on it |
-| Record header `XX XX` (`0064` in 20, `0030` in 21 and 22, `ffff` in 23) | same in every record of an upload; the same value for the same data (21, 22) | what it means; whether it is checked against the data | if it is something like a frame delay, a wrong value changes how a 2-image scene plays or hides it; if it is a check value, a wrong one may get the upload refused. Only three different values were seen, so a check value cannot be excluded (a guess that it is not one: they look like round numbers) |
+| Record header `T` (`01`, `02`, `03`, `04`) | same in every record of an upload; equals `ef` byte `p6` in captures 20, 21, 22, 23, 30, 31, 32, 33; by the user's category names: game `01`, work `02`, study `03`, cat `04` (see "Animation scenes") | what it means (type, category, slot?) | the speaker may refuse the upload, or file the image under another scene, or overwrite another scene's data; we do not know whether the speaker keys scenes on it |
+| Record header `XX XX` (`0064` in 20, 31, 32, 33; `0030` in 21 and 22; `ffff` in 23 and 30) | same in every record of an upload; the same value for the same data (21, 22); not tied to the number of images (1, 2 or 7 images with `0064`) nor to the category (study: `0030` and `0064`) | what it means; whether it is checked against the data | if it is something like a frame delay, a wrong value changes how a 2-image scene plays or hides it; if it is a check value, a wrong one may get the upload refused. Only three different values were seen, so a check value cannot be excluded (a guess that it is not one: they look like round numbers) |
 | `ef` frame `sel` `01`, `p4` `00`, trailing `ff` | constant in captures 20-25 | meaning | the speaker may ignore or reject the frame |
 | `ef` frame `p5` (`01` here, `02` in text mode) | `01` in all six scene captures; `02` in every text-mode frame | that it is a mode number (a guess) | selecting the wrong screen mode could leave the display in text mode |
 | `ef` frame `p6` | equals `T` in all uploads; `00` and `08` for clock and spectrum (no upload) | its meaning (category? guess) | selects a scene kind; a wrong value may show another scene or a built-in one |
-| `ef` frame `p7` (`21`, `09`, `04`, and `00` for clock and spectrum) | differs per scene | its meaning (item number? guess) | may address a specific stored scene; a wrong value may replace or select another scene |
+| `ef` frame `p7` (`21`, `1e`, `09`, `03`, `04`, `06`, `11`, and `00` for clock and spectrum) | differs per scene, also within a category (work `21` / `1e`, study `09` / `03`, cat `04` / `06`) | its meaning (item number? guess) | may address a specific stored scene; a wrong value may replace or select another scene |
 | `ef` frame RGB (`33 66 99` in all six) | equals the text colour in force at the time | whether the speaker applies the RGB of this frame | if it does, a different RGB would recolour the text; if our current colour differs from the captured one, replaying the captured frame could change the text colour |
 | `17` start payload, leading `00 00` | constant | meaning (upload type or slot?) | the speaker may refuse or misfile the upload |
 | `17` total size | equals records x 133 (1064 = 8 x 133, 2128 = 16 x 133); counts the headers | what the speaker does with a wrong size | a mismatch may make it refuse, wait for more data, or keep a truncated scene |
 | Chunk size 50 | announced by the speaker in its ready reply (`00 32`) | whether it varies by model or firmware | a real upload should read it from the ready reply and stop if it differs from 50 |
 | Aborted upload (no end frame, a chunk missing or not acknowledged) | never happened in the captures | what state the speaker is left in | a partial or damaged scene, or a speaker waiting for the rest of the upload |
-| Persistence and flash | the speaker answered start and end frames after about 0.1-0.2 s (guess: it stores something) | whether a scene is stored on the device, whether the upload writes flash, how often it may | repeated uploads might wear the flash; a stored scene may be replaced |
+| Persistence and flash | the speaker answered start and end frames after about 0.1-0.2 s and took 115-128 ms for 5 of the 6 image boundaries in capture 33, against 42-48 ms for ordinary chunks (a hint that it does something per image, guess: it stores something) | whether a scene is stored on the device, whether the upload writes flash, how often it may | repeated uploads might wear the flash; a stored scene may be replaced |
 
 ## Unknowns (open questions, 2026-10-25)
 
