@@ -1,12 +1,14 @@
-"""Replay ONE captured frame to the PixelBar: the e8 "set text A" frame, unmodified.
+"""Send ONE known e8 "set text" frame to the PixelBar, nothing else.
 
-Stage B of the plan in CLAUDE.md. The frame is a fixed constant taken from
-capture usb-02-text-A; there is no way to pass other bytes. Nothing else is
-sent: no handshake, no clock sync, no ee poll.
+Stages B and C of the plan in CLAUDE.md. Only two fixed frames can be chosen
+(see ALLOWED): "A" replayed unmodified from capture usb-02-text-A (stage B),
+and "AB" built by pixelbar.frames and only sent if it equals capture
+usb-03-text-AB byte for byte (stage C). There is no way to pass other bytes.
+Nothing else is sent: no handshake, no clock sync, no ee poll.
 
 Usage:
-    python tools/replay_frame.py                  # print only, sends nothing
-    python tools/replay_frame.py --send --yes-i-closed-tempohub
+    python tools/replay_frame.py [--frame A|AB]   # print only, sends nothing
+    python tools/replay_frame.py --frame AB --send --yes-i-closed-tempohub
 
 Requires: pip install hidapi (only imported when needed to find / open the device).
 Close TempoHub first, and watch the speaker's screen while this runs.
@@ -24,25 +26,34 @@ from pixelbar import frames  # noqa: E402
 VID, PID, USAGE_PAGE = 0x2D99, 0xA106, 0xFF14
 READ_TIMEOUT_MS = 2000
 
-# Captured OUT frame from usb-02-text-A: Report ID 2e, aa ec, cmd e8, len 3,
-# payload 00 01 41 ("A"), checksum c3, zero padded to 64 bytes.
-CAPTURED_A = bytes.fromhex("2eaaece80003000141c3").ljust(64, b"\x00")
+# Allowed frames. Each is a literal captured OUT frame (Report ID 2e, aa ec,
+# cmd e8, len, payload 00 <count> <text>, checksum, zero padded to 64 bytes).
+#   A  : stage B, replayed unmodified from the capture.
+#   AB : stage C, built by pixelbar.frames.text_frame("AB"); the build is only
+#        sent if it equals the captured frame byte for byte.
+ALLOWED = {
+    "A": ("usb-02-text-A", "2eaaece80003000141c3"),
+    "AB": ("usb-03-text-AB", "2eaaece800040002414207"),
+}
 FIXTURE = os.path.join(REPO, "tests", "fixtures", "captured_frames.json")
 
 
-def verify_frame():
+def verify_frame(name):
     """Refuse to continue unless the frame equals the capture and the builder."""
+    capture, literal = ALLOWED[name]
+    frame = bytes.fromhex(literal).ljust(64, b"\x00")
     checks = {}
     with open(FIXTURE, encoding="utf-8") as fh:
-        in_fixture = [bytes.fromhex(k["hex"]) for k in json.load(fh) if k["capture"] == "usb-02-text-A"]
-    checks["equals the frame in tests/fixtures (capture usb-02-text-A)"] = in_fixture == [CAPTURED_A]
-    checks["equals frames.text_frame('A')"] = frames.text_frame("A") == CAPTURED_A
-    checks["is 64 bytes, Report ID 0x2e"] = len(CAPTURED_A) == 64 and CAPTURED_A[0] == 0x2E
-    checks["checksum is valid"] = (sum(CAPTURED_A[1:9]) & 0xFF) == CAPTURED_A[9]
-    for name, ok in checks.items():
-        print(f"  [{'OK' if ok else 'FAIL'}] {name}")
+        in_fixture = [bytes.fromhex(k["hex"]) for k in json.load(fh) if k["capture"] == capture]
+    checks[f"equals the frame in tests/fixtures (capture {capture})"] = in_fixture == [frame]
+    checks[f"equals frames.text_frame({name!r})"] = frames.text_frame(name) == frame
+    checks["is 64 bytes, Report ID 0x2e"] = len(frame) == 64 and frame[0] == 0x2E
+    checks["checksum is valid"] = (sum(frame[1:len(literal) // 2 - 1]) & 0xFF) == frame[len(literal) // 2 - 1]
+    for label, ok in checks.items():
+        print(f"  [{'OK' if ok else 'FAIL'}] {label}")
     if not all(checks.values()):
         sys.exit("frame verification failed; nothing was sent")
+    return frame
 
 
 def hex_rows(data):
@@ -71,14 +82,17 @@ def find_device(hid):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--frame", choices=sorted(ALLOWED), default="A",
+                    help="which fixed frame: A (stage B) or AB (stage C); default A")
     ap.add_argument("--send", action="store_true", help="really write the frame to the device")
     ap.add_argument("--yes-i-closed-tempohub", action="store_true",
                     help="required together with --send: TempoHub is closed")
     args = ap.parse_args()
 
-    print("frame to replay (e8 set text 'A', 64 bytes):")
-    print(hex_rows(CAPTURED_A))
-    verify_frame()
+    print(f"frame to send (e8 set text {args.frame!r}, 64 bytes):")
+    frame = bytes.fromhex(ALLOWED[args.frame][1]).ljust(64, b"\x00")
+    print(hex_rows(frame))
+    verify_frame(args.frame)
 
     try:
         import hid
@@ -99,9 +113,9 @@ def main():
     dev = hid.device()
     dev.open_path(info["path"])
     try:
-        written = dev.write(CAPTURED_A)
+        written = dev.write(frame)
         print(f"write() returned {written} (expected 64)")
-        if written != len(CAPTURED_A):
+        if written != len(frame):
             print("write error:", dev.error())
             return
         reply = bytes(dev.read(64, READ_TIMEOUT_MS))  # one read, no loop, no retry
@@ -109,7 +123,7 @@ def main():
         dev.close()
 
     if not reply:
-        print(f"no reply within {READ_TIMEOUT_MS} ms (the capture also showed no direct reply to e8)")
+        print(f"no reply within {READ_TIMEOUT_MS} ms (TempoHub got a reply to every e8 in the captures)")
         return
     print(f"reply ({len(reply)} bytes):")
     print(hex_rows(reply))
