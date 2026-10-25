@@ -33,22 +33,25 @@ READ_TIMEOUT_MS = 2000
 #   AB : stage C, built by pixelbar.frames.text_frame("AB"); the build is only
 #        sent if it equals the captured frame byte for byte.
 ALLOWED = {
-    "A": ("usb-02-text-A", "2eaaece80003000141c3"),
-    "AB": ("usb-03-text-AB", "2eaaece800040002414207"),
-    "ABC": ("usb-04-text-ABC", "2eaaece8000500034142434c"),  # stage C, same rule as AB
+    "A": ("usb-02-text-A", "2eaaece80003000141c3", "A"),
+    "AB": ("usb-03-text-AB", "2eaaece800040002414207", "AB"),
+    "ABC": ("usb-04-text-ABC", "2eaaece8000500034142434c", "ABC"),  # stage C, same rule as AB
+    # first non-ASCII frame: 2 characters, 6 UTF-8 bytes (count byte = 06)
+    "NIHAO": ("usb-07-text-nihao", "2eaaece800080006e4bda0e5a5bd14", "你好"),
 }
 FIXTURE = os.path.join(REPO, "tests", "fixtures", "captured_frames.json")
 
 
 def verify_frame(name):
     """Refuse to continue unless the frame equals the capture and the builder."""
-    capture, literal = ALLOWED[name]
+    capture, literal, text = ALLOWED[name]
     frame = bytes.fromhex(literal).ljust(64, b"\x00")
     checks = {}
     with open(FIXTURE, encoding="utf-8") as fh:
         in_fixture = [bytes.fromhex(k["hex"]) for k in json.load(fh) if k["capture"] == capture]
     checks[f"equals the frame in tests/fixtures (capture {capture})"] = in_fixture == [frame]
-    checks[f"equals frames.text_frame({name!r})"] = frames.text_frame(name) == frame
+    checks[f"equals frames.text_frame({text!r})"] = frames.text_frame(text) == frame
+    checks[f"count byte {frame[7]} == UTF-8 byte length {len(text.encode('utf-8'))}"] = frame[7] == len(text.encode("utf-8"))
     checks["is 64 bytes, Report ID 0x2e"] = len(frame) == 64 and frame[0] == 0x2E
     checks["checksum is valid"] = (sum(frame[1:len(literal) // 2 - 1]) & 0xFF) == frame[len(literal) // 2 - 1]
     for label, ok in checks.items():
@@ -83,9 +86,10 @@ def find_device(hid):
 
 
 def main():
+    sys.stdout.reconfigure(errors="replace")  # the 你好 label must not crash a legacy console
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--frame", choices=sorted(ALLOWED), default="A",
-                    help="which fixed frame: A (stage B), AB or ABC (stage C); default A")
+                    help="which fixed frame: A (stage B), AB, ABC, NIHAO (= 你好, stage C); default A")
     ap.add_argument("--send", action="store_true", help="really write the frame to the device")
     ap.add_argument("--yes-i-closed-tempohub", action="store_true",
                     help="required together with --send: TempoHub is closed")
