@@ -3,7 +3,8 @@
 Goal: control the pixel screen of the Edifier(漫步者) 花再 Halo PixelBar speaker
 from Windows with Python: custom text first, custom images later.
 Owner has either the basic edition (2025) or the enhanced edition (2026, 419 RMB,
-real-time lyrics, Bluetooth 6.0 + USB). Edition: ASK THE USER, not yet recorded.
+real-time lyrics, Bluetooth 6.0 + USB). Edition: enhanced, per the user
+(2026-10-25; not yet verified against the box label or model number).
 
 Known facts (from public web reports, not verified):
 - Official PC software is "EDIFIER TempoHub"; it controls the speaker over USB
@@ -22,7 +23,10 @@ Rules:
 
 Workflow and status:
 1. Identify device: run tools/list_devices.py, record VID:PID in docs/protocol.md.
+   DONE: USB HID 2d99:a106 (Jieli), vendor usage pages 0xFF13/0xFF14 on iface 4.
 2. User captures USB traffic (steps in README.md) into captures/.
+   DONE for capture 01 (app open/connect): frame format + checksum documented,
+   no screen data in it. NEXT: text A / AB / ABC / colour captures (full, unfiltered).
 3. Analyse captures (tshark/Python), diff per action, fill docs/protocol.md.
 4. Build pixelbar/ module + CLI: `python -m pixelbar text "你好" --color ff0000`,
    with --dry-run first. Images only after text works.
