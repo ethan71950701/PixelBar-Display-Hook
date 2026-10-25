@@ -47,6 +47,13 @@ class FrameTests(unittest.TestCase):
         self.assertEqual(f[:3], b"\x2e\xaa\xec")
         self.assertEqual(f[6:8], b"\x00\x06")  # leading 00, UTF-8 byte count (not chars)
 
+    def test_parse_hex_color(self):
+        self.assertEqual(frames.parse_hex_color("#330200"), (0x33, 0x02, 0x00))
+        self.assertEqual(frames.parse_hex_color("336699"), (0x33, 0x66, 0x99))
+        for bad in ("", "12345", "1234567", "zz0000"):
+            with self.subTest(value=bad), self.assertRaises(ValueError):
+                frames.parse_hex_color(bad)
+
     def test_rejects_untested_input(self):
         with self.assertRaises(ValueError):
             frames.text_frame("")

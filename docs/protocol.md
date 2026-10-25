@@ -411,6 +411,67 @@ closed, user watching) sent one frame that was NOT in any capture:
   `Hello`. Longer text is unverified; the CLI limits text to `--max-bytes`
   (default 6) and the hard limit is 55 bytes (one frame).
 
+## Unknowns (open questions, 2026-10-25)
+
+Things that are NOT known. Nothing below is a finding; where there is a hint
+it is called a hint.
+
+### 1. Is the `e8` text written to flash?
+
+Unknown. It matters for timed refresh: if every `e8` is a flash write, a
+program that updates the text every few seconds could wear the flash out, and
+the safe refresh rate is far lower than if it only touches RAM.
+
+- Hint that the device keeps the text itself: in capture 01 the first `e7`
+  read-back, before any `e8` in that file, returned the text `lspss`. So some
+  text survived across TempoHub sessions. That does not say RAM or flash, and
+  where `lspss` came from is not known.
+- Hint about timing: the `cc` reply to every `e8` arrived about 2 ms after the
+  write. A flash write could take longer, but the device may well answer
+  before writing, so this proves nothing.
+- Not established: whether the text survives a speaker power cycle, and
+  whether the device debounces or delays writes.
+- Rule until this is known: treat each `e8` as a possible flash write: no
+  loops, no refresh faster than a person would retype it. No timed refresh
+  code exists yet (deliberately).
+- A later test would need commands we have not sent from our code (an `e7`
+  read-back, a power cycle); it needs the user's approval first.
+
+### 2. The meaning of `03` (and the other constant bytes)
+
+- `ef` payload = `03` + R G B. Only `03` has ever been seen: capture 05, 08,
+  09 (TempoHub) and our own send. No sample ever differed, so there is no
+  evidence what it means. Guesses (zone, slot, mode) have no support.
+- Same situation for: the leading `00` of the `e8` payload (always `00`: A,
+  AB, ABC, 你好, Hello), and the `00 00 ff ff ff` tail of the `ef` reply
+  (identical in all four colour replies).
+- To learn it: a capture of TempoHub changing another colour setting (e.g. a
+  background or theme colour, if it has one), or sending other values, which
+  is a risk we have not taken.
+
+### 3. Maximum text length
+
+- One 64-byte frame carries at most 55 bytes of text (report size limit). The
+  count field is one byte, so the protocol might allow more through several
+  frames, but no multi-frame transfer was ever seen.
+- Verified on the device: 6 UTF-8 bytes (`你好`) and 5 (`Hello`). Anything
+  longer is untested. The CLI refuses text over `--max-bytes` (default 6) and
+  always refuses more than 55 bytes.
+- The `e7` read-back contains two constant bytes, `10 32` (16 and 50 as
+  numbers), in every reply. They could be limits, but nothing supports that.
+- Not known: what the screen does with long text (scroll, truncate, or
+  reject), and TempoHub's own length limit (a capture of a long text typed in
+  TempoHub would show it).
+
+### 4. Other open items
+
+- `ee` status reply bytes 5 and 7 (`01/00` -> `02/01` after the first `e8`).
+- The 44-byte `6a` table and the other device-info replies (`d8`, `65`, `66`,
+  `d5`, `68`, `84`, `86`, `d7`, `f0`, `c6`).
+- Images: no image command has been captured at all.
+- Text and colour in one run (colour then text) was never captured from
+  TempoHub; the CLI sends them as two separately verified frames.
+
 ## Earlier notes from another session (merged)
 
 Added to the same branch by a separate session before captures existed. Kept

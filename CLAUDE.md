@@ -47,9 +47,12 @@ Workflow and status:
      turned the TEXT colour red (user-confirmed). The leading 03 is still
      unexplained and is never varied.
    D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar
-     text "..." | color RRGGBB` with `--send --yes-i-closed-tempohub`; default
-     is dry run, one frame per call, text limited to --max-bytes (default 6 =
-     longest verified). Each live step needs the user's OK, in this order:
+     text "..." [--color RRGGBB] | color RRGGBB`; default is a dry run, --send
+     writes after asking "TempoHub closed?" (or --yes-i-closed-tempohub),
+     stops at the first unexpected reply; text limited to --max-bytes (default
+     6 = longest verified), more than one frame (55 B) is a hard error.
+     No timed-refresh code on purpose: see "Unknowns" in docs/protocol.md
+     (flash writes, meaning of 03, max length). Each live step needs the user's OK, in this order:
      1 text "Hello" (5 B, new content) 2 uncaptured colour e.g. 336699
      3 text up to 12 B, then 24 B, then 55 B (hard limit), stopping on any
      odd reply or screen. Compare each reply with the expected one printed.

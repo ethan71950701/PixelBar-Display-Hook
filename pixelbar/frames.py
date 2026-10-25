@@ -72,6 +72,9 @@ def expected_color_reply(r, g, b):
 
 def parse_hex_color(value):
     value = value.lstrip("#")
-    if len(value) != 6:
-        raise ValueError("colour must be 6 hex digits, e.g. ff0000")
-    return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+    try:
+        if len(value) != 6:
+            raise ValueError
+        return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        raise ValueError("colour must be 6 hex digits, e.g. ff0000") from None
