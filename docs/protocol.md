@@ -324,6 +324,9 @@ an image command is simply not seen yet (confirmed for these captures). An
 image would need many frames or the other vendor HID channel (usage page
 0xFF13, Report IDs 0x06/0x07, unused so far) - that is a guess.
 
+(Superseded by "Bitmap / bulk-data evidence check" further down, which covers
+all 17 captures and 157 frames; its conclusion is the same: no evidence.)
+
 ### Can the text module be written?
 
 Yes, dry-run only first (project rule: nothing is sent until a `--dry-run`
@@ -593,6 +596,122 @@ whether every `e8` makes a flash write, or how many writes it survives.
   captured).
 - The scroll speed in numbers; whether each new `e8` restarts the scroll.
 - Whether any of this writes flash (see Unknowns).
+
+## HID report descriptor of interface 4, itemised (read-only analysis)
+
+Source: the GET_DESCRIPTOR(HID report) reply for interface 4 in capture 06
+(replug), 66 bytes, read offline; nothing was sent to the device.
+
+Raw bytes (hex):
+
+    0613ff0901a101150026ff00850609007508953d9102850709007508953d8102c0
+    0614ff0901a101150026ff00852e09007508953f9102852f09007508953f8102c0
+
+### Collection 1: usage page 0xFF13 (confirmed)
+
+| Bytes | Item |
+|---|---|
+| `06 13 ff` | Usage Page 0xFF13 (vendor defined) |
+| `09 01` | Usage 0x01 |
+| `a1 01` | Collection (Application) |
+| `15 00` `26 ff 00` | Logical Min 0, Logical Max 255 |
+| `85 06` | Report ID 0x06 |
+| `09 00` `75 08` `95 3d` `91 02` | Usage 0, Report Size 8 bits, Report Count 61, **Output** (Data, Variable, Absolute) |
+| `85 07` | Report ID 0x07 |
+| `09 00` `75 08` `95 3d` `81 02` | Usage 0, Report Size 8 bits, Report Count 61, **Input** (Data, Variable, Absolute) |
+| `c0` | End Collection |
+
+- Output report 0x06: 61 data bytes (62 bytes on the wire with the Report ID).
+- Input report 0x07: 61 data bytes (62 bytes with the Report ID).
+- **No Feature report** in this collection (no `b1` item) (confirmed).
+- Meaning of the bytes inside these reports: unknown. The usage is 0 (undefined)
+  and the data are plain bytes 0-255.
+
+### Collection 2: usage page 0xFF14 (confirmed, same structure)
+
+Report ID 0x2E Output, 63 data bytes (64 on the wire); Report ID 0x2F Input,
+63 data bytes (64 on the wire); **no Feature report**. This is the channel
+that carries every frame in all 17 captures.
+
+### Endpoints of interface 4 (confirmed, from the configuration descriptor in
+capture 06)
+
+Interface 4: class 0x03 (HID), 2 endpoints, both interrupt, wMaxPacketSize 64,
+bInterval 1: `0x84` IN and `0x04` OUT. Both collections (0xFF13 and 0xFF14) are
+in the same interface, so reports of either collection would share these two
+endpoints and be told apart only by the Report ID in the first byte. That the
+two collections share the endpoints follows from the descriptor (one HID
+interface, one IN and one OUT endpoint); it is not something a frame showed.
+
+Other interfaces in the same descriptor: interface 0 (class 0x01, subclass
+0x01) and interfaces 1 and 2 (class 0x01, subclass 0x02) are USB Audio
+(control and two streaming interfaces; isochronous endpoints `0x03` OUT,
+maximum packet 288, and `0x83` IN, maximum packet 96); interface 3 is the HID
+consumer control (report descriptor 33 bytes, interrupt IN `0x82`, maximum
+packet 16).
+
+## Known command table (all 17 captures: 01-17)
+
+Counts are frames TempoHub exchanged with the speaker in captures 01-17 (74
+OUT, 83 IN, 157 in total; nothing we sent is counted). "Answered" = an IN frame
+with the same command byte follows the OUT before the next OUT of that
+command. "Unsolicited" = IN frames with no matching OUT. Lengths are the
+payload length in bytes (not the 64-byte report). Direction is from the host:
+OUT = host to speaker, IN = speaker to host.
+
+| Cmd | OUT | IN | OUT len | IN len | Answered | Unsolicited IN | In captures | Known meaning | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| `65` | 2 | 2 | 0 | 4 | 2/2 | 0 | 01, 06 | startup query, reply `02 00 00 40` | unknown |
+| `66` | 2 | 4 | 0 | 2 | 2/2 | 2 | 01, 06, 16 | startup query; reply `10 0b` (and `10 08` in 16), also pushed by the speaker | unknown |
+| `68` | 2 | 2 | 0 | 1 | 2/2 | 0 | 01, 06 | startup query, reply `00` | unknown |
+| `6a` | 3 | 3 | 0 | 44 | 3/3 | 0 | 01, 02, 06 | startup query, same 44-byte table every time | unknown (looks like a config table) |
+| `77` | 4 | 7 | 9 | 1 | 4/4 | 3 | 01, 04, 08, 16 | clock: bytes 0-6 are year (2 B, big endian), month, day, hour, minute, second; last 2 bytes `00 01`; answered with `01`; the speaker also sends `02` unprompted before the app's sync | date/time bytes confirmed; last 2 bytes and the `02` unknown |
+| `84` | 1 | 1 | 0 | 2 | 1/1 | 0 | 01 | startup query, reply `05 01` | unknown |
+| `86` | 1 | 1 | 0 | 3 | 1/1 | 0 | 01 | startup query, reply `0e 01 01` | unknown |
+| `87` | 2 | 2 | 3 | 3 | 2/2 | 0 | 01, 06 | OUT `0e 02 01`, reply `02 02 01` | unknown |
+| `c6` | 4 | 4 | 0 | 3 | 4/4 | 0 | 01, 06 | startup query, reply `01 03 06` | unknown (version? guess) |
+| `c8` | 4 | 4 | 0 | 6 | 4/4 | 0 | 01, 06 | startup query, reply `c8 24 78 bb c6 6f`, looks like an address | unknown (address-like, guess) |
+| `c9` | 4 | 4 | 0 | 20 | 4/4 | 0 | 01, 06 | device name, UTF-8: "花再 Halo PixelBar" | confirmed |
+| `d5` | 2 | 2 | 0 | 1 | 2/2 | 0 | 01, 06 | startup query, reply `00` | unknown |
+| `d7` | 1 | 1 | 0 | 2 | 1/1 | 0 | 01 | startup query, reply `01 01` | unknown |
+| `d8` | 4 | 4 | 0 | 27 | 4/4 | 0 | 01, 06 | startup query, 27-byte table, same every time | unknown (capability table? guess) |
+| `e7` | 12 | 12 | 1 | 5-10 | 12/12 | 0 | 01, 02, 03, 04, 07, 10, 13 | read the screen text back: OUT `00`; reply `00 XX 32 <count> <text>` with `XX` = `10` static / `20` scroll | confirmed (text, mode byte correlation) |
+| `e8` | 4 | 4 | 3-8 | 1 | 4/4 | 0 | 02, 03, 04, 07 | set screen text: `00 <UTF-8 byte count> <UTF-8 text>`; reply (report tag `cc`) `01` | confirmed |
+| `ee` | 10 | 14 | 0 | 12 | 10/10 | 4 | 01, 02, 03, 04, 06, 07, 14, 15, 16 | status: `00 R G B 00 02 major sub ff 01 00 00`; also pushed by the speaker after an `e8` | confirmed for colour, main mode and sub-option; byte 5 and the trailing `01 00 00` unknown |
+| `ef` | 11 | 11 | 4 or 9 | 9 | 11/11 | 0 | 05, 08, 09, 10-17 | 4-byte `03 R G B` sets the text colour; 9-byte `sel R G B 00 02 major sub ff` sets main mode (`sel` 02) or sub-option (`sel` 01) | confirmed (see "Captures 10-17") |
+| `f0` | 1 | 1 | 1 | 3 | 1/1 | 0 | 01 | OUT `1a`, reply `1a ff 01` | unknown |
+
+Report tags: OUT frames carry `aa`; IN frames carry `bb`, except the reply to
+`e8`, which carries `cc` (four frames). All frames in the table checksum
+correctly (sum of the tag byte through the last payload byte, mod 256).
+
+## Bitmap / bulk-data evidence check (all 17 captures)
+
+Question: does any command, frame or channel in the existing captures look
+able to carry a bitmap or other large data?
+
+**In the existing captures there is no evidence of that.** What was checked,
+and what each check found:
+
+- Speaker frames on interface 4: 157 frames, every one is a 64-byte report with
+  Report ID 0x2E or 0x2F, on endpoints `0x04` and `0x84`. The longest payload
+  is 44 bytes (reply to `6a`, identical in each capture). No command is
+  followed by a numbered or offset-bearing series of frames; no frame is a
+  continuation of another. 19 distinct command bytes, listed above, all with
+  short fixed or small payloads.
+- Collection 0xFF13 (Report IDs 0x06 and 0x07, 61-byte reports): not a single
+  frame with Report ID 0x06 or 0x07 in any capture. It is declared in the
+  descriptor but unused in these captures. Nothing can be said about what it
+  is for.
+- Control pipe: no SET_REPORT or GET_REPORT (no HID report transfers), no
+  Feature report requests. HID class requests seen: SET_IDLE (2) only. The
+  rest are standard descriptor and configuration requests and USB Audio class
+  requests.
+- Isochronous endpoints `0x03` and `0x83` belong to the USB Audio interfaces
+  (audio data), and were not examined further.
+- No image upload was captured, so the captures contain no example of an
+  image being sent. The absence of evidence is about these captures only; it
+  does not mean the speaker cannot show images.
 
 ## Unknowns (open questions, 2026-10-25)
 
