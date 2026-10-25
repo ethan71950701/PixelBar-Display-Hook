@@ -1842,9 +1842,59 @@ other values work, how fast or slow they can go, what `ffff` does) is not
 known. Only `0030` and `0064` have been used, the two values TempoHub itself
 used.
 
-Not known: the formula for other values; whether very small or large values are
-safe for the speaker; what `ffff` means. Using any other value of an unknown
-field remains forbidden without the user's approval.
+#### Third value: `XX XX` = `0018` (upload 18, 2026-10-26, user-approved)
+
+Same 2-picture animation, only `XX XX` = `0x0018` (24; allowed range widened
+to `0010`-`0190` at the user's request: 「我同意你用我們沒有用過…」, the message was
+cut off after those words, read as "values not used before"). 46/46 frames, 45
+replies, all matched, 2.73 s. The user's video `20261026_073718.mp4` (120 fps at
+0.25x, 14.5 s file time): at this speed the two pictures have almost the same
+total brightness, so the picture changes were found as the short dips of the
+total brightness at every change (as for 上岸): 87 dips from 0.51 s to 14.28 s,
+mean 0.1601 s of file time = **0.0400 s per picture** (the intervals alternate
+0.13 / 0.17 s of file time, which is the camera's frame, 35 ms of file time).
+
+| `XX XX` | time per picture | ms per unit |
+|---|---|---|
+| `0018` = 24 | 0.0400 s | 1.67 |
+| `0030` = 48 | 0.0902 s | 1.88 |
+| `0064` = 100 | 0.2025 s | 2.03 |
+
+Not proportional to `XX XX` at the small end. A straight line through these
+three points (about 2.13 ms per unit minus 11 ms: 40, 91, 202 ms) predicted
+0.63 s for `012c` (300), before it was sent; see the fourth value below.
+
+#### Fourth value: `XX XX` = `012c` (upload 19, 2026-10-26, user-approved)
+
+Same 2-picture animation, only `XX XX` = `0x012c` (300). 46/46 frames, 45
+replies, all matched, 2.72 s. The user's video `20261026_073958.mp4` (120 fps
+at 0.25x, 13.4 s file time): the picture changes show as event pairs at 1.37,
+3.77, 6.20, 8.59, 10.99 and 13.38 s (file time), a change every 2.40 s (the
+three brightness dips at 6.23, 8.62 and 11.02 s are 2.40 s apart too), that is
+**0.5996 s per picture** (about 1.7 pictures per second; one loop of the two
+pictures about 1.2 s). Only 5 intervals were measured, so the figure is good to
+about one camera frame (35 ms of file time = 9 ms real) divided by 5.
+
+| `XX XX` | time per picture | ms per unit |
+|---|---|---|
+| `0018` = 24 | 0.0400 s | 1.67 |
+| `0030` = 48 | 0.0902 s | 1.88 |
+| `0064` = 100 | 0.2025 s | 2.03 |
+| `012c` = 300 | 0.5996 s | 2.00 |
+
+The straight-line prediction (0.63 s) was 5% too high, so the three-point line
+was wrong. For 100 and 300 the time is close to 2 ms x `XX XX` (+1.2% and
+-0.1%); below that the pictures are shown for less than that (-6% at 48, -17% at
+24). Nothing explains the small end (a fixed cost per change that the speaker
+saves for short times? a different timer? not tested). What can be said from
+the four measurements: larger value = slower, roughly 2 ms per unit from 100
+upward; the exact function below 100 is not known. This is a fit to measured
+points, not a documented formula.
+
+Not known: values above 300 (the code allows up to `0190` = 400, about 0.8 s
+predicted); whether very small or large values are safe for the speaker; what
+`ffff` means. Values outside `0010`-`0190` stay refused by the code; any value
+of an unknown field needs the user's approval for each use.
 
 ## Unknown fields in the scene upload, and the risk of changing them
 

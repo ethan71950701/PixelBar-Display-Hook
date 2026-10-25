@@ -115,7 +115,8 @@ def _multi_image_checks(steps, built, image, c, ef, captured_out):
     }
 
 
-ALLOWED_XX = (0x0030, 0x0064)          # the values TempoHub itself used for scenes with pictures (0xffff, one picture, not allowed)
+XX_MIN, XX_MAX = 0x0010, 0x0190         # tried so far: 0x0030 and 0x0064 (TempoHub's); 0xffff (one-picture scenes) is never allowed
+ALLOWED_XX = (0x0030, 0x0064)          # the values with a measured speed (documented); others in XX_MIN..XX_MAX need the user's go-ahead
 
 
 def load_plan(fixture=FIXTURE, pixel=None, image=None, xx=None):
@@ -131,8 +132,8 @@ def load_plan(fixture=FIXTURE, pixel=None, image=None, xx=None):
     with open(fixture, encoding="utf-8") as fh:
         c = json.load(fh)[KEY]
     if xx is not None:
-        if xx not in ALLOWED_XX:
-            raise ValueError(f"XX XX may only be one of {[hex(v) for v in ALLOWED_XX]} (values TempoHub used)")
+        if not XX_MIN <= xx <= XX_MAX:
+            raise ValueError(f"XX XX may only be between 0x{XX_MIN:04x} and 0x{XX_MAX:04x} (0x0030 and 0x0064 are the ones measured so far)")
         if image is None or len(image) <= upload.IMAGE_BYTES:
             raise ValueError("a different XX XX is only for uploads of several pictures")
         c = {**c, "xx": xx}

@@ -127,15 +127,16 @@ class XxTests(unittest.TestCase):
         self.assertTrue(any("0x0030" in k for k in checks))
 
     def test_only_values_tempohub_used_and_only_for_several_pictures(self):
-        for bad in (0x0000, 0x0031, 0xFFFF, 0x0100):
+        for bad in (0x0000, 0x000F, 0x0191, 0xFFFF):
             with self.subTest(xx=bad), self.assertRaises(ValueError):
                 upload_replay.load_plan(image=bitmap_of(2), xx=bad)
         with self.assertRaises(ValueError):
             upload_replay.load_plan(image=bitmap_of(1), xx=0x0030)
         with self.assertRaises(ValueError):
             upload_replay.load_plan(xx=0x0030)
-        steps, checks = upload_replay.load_plan(image=bitmap_of(2), xx=0x0064)
-        self.assertTrue(all(checks.values()))
+        for ok in (0x0064, 0x0018, 0x00C8):
+            steps, checks = upload_replay.load_plan(image=bitmap_of(2), xx=ok)
+            self.assertTrue(all(checks.values()), ok)
 
     def test_the_identity_hash_depends_on_xx_xx(self):
         bitmap = bitmap_of(2)
@@ -238,7 +239,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("XX XX is changed from the captured 0x0064 to 0x0030", text)
         self.assertNotIn("[FAIL]", text)
         self.assertIn("record header XX XX is the requested 0x0030", text)
-        for bad, frames_ in (("ffff", "2"), ("30", "1")):
+        for bad, frames_ in (("ffff", "2"), ("30", "1"), ("0f", "2")):
             with self.subTest(xx=bad), self.assertRaises(SystemExit) as ctx, contextlib.redirect_stdout(io.StringIO()):
                 cli.main(["animation", "--frames", frames_, "--xx", bad, "--preview-dir", self.dir])
             self.assertIn("error", str(ctx.exception))

@@ -254,7 +254,7 @@ def main(argv=None):
     an.add_argument("--frames", type=int, required=True, help=f"how many pictures, 1 to {testanim.FRAMES} (the first N of the 20)")
     an.add_argument("--preview-dir", default=PREVIEW_DIR, help=f"where the contact sheet PNG goes (default {PREVIEW_DIR}; keep it outside the repository)")
     an.add_argument("--xx", type=lambda v: int(v, 16), default=None, metavar="HEX",
-                    help="record header XX XX in hex, 0030 or 0064 (default: the captured 0064); the speed experiment, the only unknown field that may differ")
+                    help="record header XX XX in hex, 0010..0190 (default: the captured 0064); sets the time each picture is shown (0064: 0.20 s, 0030: 0.09 s measured); the only unknown field that may differ")
     an.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; required with --send")
     add_send_options(an)
     sl = sub.add_parser("slideshow", help="1 to 20 of your own pictures in one upload, in the order given (dry run by default)")
