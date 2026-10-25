@@ -103,6 +103,18 @@ class PackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             image.pack_pixels(rows, "diagonal")
 
+    def test_sha_prefix_binding(self):
+        import hashlib
+        bitmap = image.pack_pixels(self.one_pixel(9, 9))
+        digest = hashlib.sha256(bitmap).hexdigest()
+        self.assertTrue(image.sha_matches(bitmap, digest[:12]))
+        self.assertTrue(image.sha_matches(bitmap, digest[:16].upper()))
+        self.assertFalse(image.sha_matches(bitmap, digest[:11]))            # too short to bind
+        self.assertFalse(image.sha_matches(bitmap, "0" * 12))
+        self.assertFalse(image.sha_matches(bitmap, "zz" + digest[2:14]))
+        other = image.pack_pixels(self.one_pixel(9, 10))
+        self.assertFalse(image.sha_matches(other, digest[:12]))             # another image does not match
+
     def test_preview_shape(self):
         text = image.preview(self.one_pixel(2, 1)).split("\n")
         self.assertEqual(len(text), 33)

@@ -144,6 +144,13 @@ def pack_pixels(rows, bit_order="lsb-top"):
     return bytes(out)
 
 
+def sha_matches(bitmap, prefix, minimum=12):
+    """True if the SHA-256 of the bitmap starts with `prefix` (at least `minimum` hex digits)."""
+    import hashlib
+    prefix = prefix.strip().lower()
+    return len(prefix) >= minimum and all(c in "0123456789abcdef" for c in prefix) and hashlib.sha256(bitmap).hexdigest().startswith(prefix)
+
+
 def png_to_bitmap(data, threshold=DEFAULT_THRESHOLD, bit_order="lsb-top"):
     return pack_pixels(png_to_pixels(data, threshold), bit_order)
 
