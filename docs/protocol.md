@@ -563,6 +563,28 @@ interpretation.
   For static centre the user was not asked about the alignment each step, so
   that mode is not claimed.
 
+### Power-cycle test (confirmed by this live test)
+
+Display mode at the time: "滚动，左往右" (scroll, left to right), told by the
+user. TempoHub closed throughout. Only one frame was sent in this test.
+
+1. Sent `e8` with the text `PWRTEST1`: `2e aa ec e8 00 0a 00 08` + `PWRTEST1`
+   + checksum `fa`. Reply `2f cc ec e8 00 01 01 a2`.
+2. Asked whether the screen showed `PWRTEST1`; the user answered `是` (yes).
+3. The user then powered the speaker completely off for at least 10 seconds
+   (their statement; the exact time was not measured), connected it again,
+   did not open TempoHub, and reported: `开机了，斷電前一樣` ("powered on,
+   same as before the power-off").
+4. Reading of that answer: the screen after power-on was what it had been
+   before power-off, i.e. `PWRTEST1` (the user did not repeat the text; the
+   previous answer fixes what "before" was).
+
+Result: the text stayed after the power cycle (confirmed). What it does NOT
+show: how the text is stored (the speaker may keep it in non-volatile memory,
+or may have a battery or capacitor that kept memory alive; the user said the
+speaker was completely unpowered, but we do not know whether it has a battery),
+whether every `e8` makes a flash write, or how many writes it survives.
+
 ### What they do NOT establish
 
 - Why static mode cuts at `V`; whether it keeps 32 bytes or is limited by
@@ -590,8 +612,15 @@ the safe refresh rate is far lower than if it only touches RAM.
 - Hint about timing: the `cc` reply to every `e8` arrived about 2 ms after the
   write. A flash write could take longer, but the device may well answer
   before writing, so this proves nothing.
-- Not established: whether the text survives a speaker power cycle, and
-  whether the device debounces or delays writes.
+- Power-cycle test (2026-10-25, see "Live length tests"): after sending
+  `PWRTEST1` and cutting the speaker's power for at least 10 seconds (the
+  user's figure), the user reported the screen was the same as before
+  (`斷電前一樣`). So the text stays after a power cycle (confirmed by this live
+  test). It does NOT prove that each `e8` writes flash, that the memory is
+  flash rather than something else, or how many writes it survives; nor do we
+  know if the speaker has a battery.
+- Not established: whether the device debounces or delays writes, and whether
+  writing the same text again does anything.
 - Our code sent 12 `e8` frames and 2 colour frames on 2026-10-25, a few
   minutes apart or less, with no error, no odd reply and nothing odd on the
   screen. That does not test flash wear: a handful of writes cannot show a
@@ -599,9 +628,8 @@ the safe refresh rate is far lower than if it only touches RAM.
 - Rule until this is known: treat each `e8` as a possible flash write: no
   loops, no refresh faster than a person would retype it. No timed refresh
   code exists yet (deliberately).
-- A test that would answer it with a few frames: send a text, power-cycle the
-  speaker, see whether the text is still there (RAM would lose it, flash
-  would keep it). Needs the user's approval.
+- The power-cycle test has been done (above): the text stayed. A test of the
+  write count limit is not possible in a few frames and was not attempted.
 - A later test would need commands we have not sent from our code (an `e7`
   read-back, a power cycle); it needs the user's approval first.
 

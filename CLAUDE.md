@@ -54,6 +54,9 @@ Workflow and status:
      right; 5/12/24/55 bytes): all acknowledged; static cut the 55 B text
      after "V", scroll showed it all; colour 336699 took effect. See "Live
      length tests" in docs/protocol.md. Still no timed-refresh code.
+   Power-cycle test DONE 2026-10-25: text PWRTEST1 stayed after the speaker was
+     unplugged >= 10 s (user report). Flash wear per write is still unknown:
+     any Display Hook must send only on change and rate-limit (see Unknowns).
    D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar
      text "..." [--color RRGGBB] | color RRGGBB`; default is a dry run, --send
      writes after asking "TempoHub closed?" (or --yes-i-closed-tempohub),
