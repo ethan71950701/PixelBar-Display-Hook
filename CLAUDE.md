@@ -107,7 +107,15 @@ Workflow and status:
      force (everything else and its checksum must still match; all other steps
      exact). The next upload needs the user's go-ahead; they will raise
      limits.json "total" themselves.
-     Own pictures (developed; one real upload attempt so far, see above): `python -m pixelbar image PIC`
+     Upload 5 DONE 2026-10-25 (first own picture: a silhouette, contain +
+     threshold + invert, hash c6cdc4852165e993, text colour white): all 24
+     replies matched (the ef reply reported the colour in force); the screen
+     showed it right, in pure white, nothing left over (user-confirmed). So the
+     ef colour bytes are not applied; the picture takes the text colour.
+     limits.json is {"total": 20, "per_day": 10} (written at the user's request);
+     4->5 uploads used. The silhouette replaced the scene 兼职成年人 until it is
+     clicked again in TempoHub (restore not reported yet).
+     Own pictures (developed; real uploads: attempt 4 stopped, upload 5 ok): `python -m pixelbar image PIC`
      (dry run by default) and `prepare PIC OUT.png`, Pillow optional
      (pixelbar/prepare.py only). Limits that only ~/.pixelbar/limits.json can
      raise: 5 uploads in total (3 used), 10 per day (3 used today), no

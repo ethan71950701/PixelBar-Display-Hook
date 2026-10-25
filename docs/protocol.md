@@ -1497,10 +1497,13 @@ the bitmap's SHA-256), and the optional `limits.json`
 
 ### Not verified yet
 
-- No own picture has been uploaded: how a dithered picture looks on the real
-  screen, whether the default settings give a good result, and the pixel pitch
-  of the panel are unknown.
-- The upload path of `image --send` was exercised only with a fake device;
+- One own picture has been uploaded (the silhouette, see "Upload 5"; the
+  first attempt to upload it stopped at the first frame, see "Upload attempt
+  4"). How a dithered picture or a photograph looks on the real screen,
+  whether the default settings give a good result, and the pixel pitch of the
+  panel are still unknown.
+- (Written before upload 5; since then the real path has been run once, see
+  "Upload 5".) The upload path of `image --send` was exercised only with a fake device;
   `device.open_device` has not been run against the real speaker (stages 2 and
   3 used the tools' own code to open it).
 - Only single-image uploads are built (one 256x32 picture); multi-image scenes
@@ -1569,6 +1572,58 @@ are the speaker's current colour ..." and the result carries it as
 dry run now prints this reply rule. The upload budget of this attempt stays
 counted (4 of 5); raising the total is only done by editing `limits.json`.
 
+## Upload 5: the first own picture, a silhouette (confirmed by this live test, 2026-10-25)
+
+Tool and settings: `python -m pixelbar image C:\pixelbar-raw\silhouette-cropped.png
+--fit contain --mode threshold --invert --send --expect-sha c6cdc4852165
+--yes-i-closed-tempohub`. The picture is a phone screenshot of a black
+silhouette (a figure with a bow) on white, 3120x1440, whose 600-pixel black
+side bars were cropped off into a copy of 1920x1440 (the copy, not the
+original, was used). `contain` scaled it to the 32-pixel height of the screen
+(a figure about 15 pixels wide in the middle), `threshold` gave hard edges and
+`invert` made the figure light on a dark background: 429 lit pixels, bitmap
+SHA-256 `c6cdc4852165e993`, the hash that the dry run printed and that was
+given with `--expect-sha`. It was uploaded as capture 20's scene (all unknown
+fields as captured). Limits at the time: 4 of 20 uploads used in total (the
+user had asked for `limits.json` with `{"total": 20, "per_day": 10}`), 4 of 10
+today; this was upload 5 (the log has it as `started` and `ok`).
+
+Before it, the text colour had been set to pure white and `Hello` shown
+(`ef 03 ff ff ff`, replies as expected). The user said then that the screen
+showed a normal white 「兼职成年人」 (the state after the `ef` frame of the
+stopped attempt 4, see above) and, for the `Hello` step, replied `是，繼續`.
+
+Device side (confirmed): TempoHub process count 0; 25 of 25 frames written; all
+24 expected replies matched; no unsolicited frame, no timeout, no retry; 1.45
+s. The scene-select reply matched under the changed rule: its colour bytes
+were `ffffff` (the colour in force) instead of the `33 66 99` that had been
+sent.
+
+What the user saw, as typed: `1都正常2是3是，沒有4沒有`. In the order of my four
+questions: (1) is the silhouette shown, is its shape right: all normal (都正常);
+(2) is the colour pure white: yes; (3) is everything else dark, any leftover of
+「兼职成年人」 or `Hello`: yes (dark), none; (4) anything else odd (flicker,
+wrong position, cut off): none.
+
+Result: the picture was shown as intended, in pure white. Confirmed by this
+test:
+
+- A picture prepared by `prepare.py` (scaled with `contain`, hard threshold,
+  inverted) and uploaded through `image --send` is accepted and displayed.
+- The image is drawn in the text colour in force (white, set with the colour
+  command), not in the colour bytes carried by the scene-select frame (`33 66
+  99` was sent, the picture is white). Together with the scene-select reply
+  (it reports the colour in force) this settles the question left open for the
+  `ef` colour bytes: they are not applied.
+- The screen was replaced completely (no leftover) and was still.
+
+Not shown: how a dithered picture or a photograph looks on the real screen
+(this was a clean two-tone silhouette); whether the figure's size is as good
+as it could be on this 256x32 screen (no other settings were compared on the
+speaker); the restore after this upload (not done at the time of writing; the
+speaker shows the silhouette in place of 「兼职成年人」 until the scene is
+clicked in TempoHub again).
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The
@@ -1583,7 +1638,7 @@ upload should only repeat the captured values.
 | `ef` frame `p5` (`01` here, `02` in text mode) | `01` in all six scene captures; `02` in every text-mode frame | that it is a mode number (a guess) | selecting the wrong screen mode could leave the display in text mode |
 | `ef` frame `p6` | equals `T` in all uploads; `00` and `08` for clock and spectrum (no upload) | its meaning (category? guess) | selects a scene kind; a wrong value may show another scene or a built-in one |
 | `ef` frame `p7` (`21`, `1e`, `09`, `03`, `04`, `06`, `11`, and `00` for clock and spectrum) | differs per scene, also within a category (work `21` / `1e`, study `09` / `03`, cat `04` / `06`) | its meaning (item number? guess) | may address a specific stored scene; a wrong value may replace or select another scene |
-| `ef` frame RGB (`33 66 99` in all six) | equals the text colour in force at the time | whether the speaker applies the RGB of this frame | if it does, a different RGB would recolour the text; if our current colour differs from the captured one, replaying the captured frame could change the text colour |
+| `ef` frame RGB (`33 66 99` in all six) | equals the text colour in force at the time; RESOLVED by upload attempt 4 and upload 5: the speaker does not apply it (the reply carries the colour in force, `ffffff`, and the picture was white although `33 66 99` was sent) | nothing open about this field now (its role in the frame is still unexplained) | replaying the captured frame does not change the text colour |
 | `17` start payload, leading `00 00` | constant | meaning (upload type or slot?) | the speaker may refuse or misfile the upload |
 | `17` total size | equals records x 133 (1064 = 8 x 133, 2128 = 16 x 133); counts the headers | what the speaker does with a wrong size | a mismatch may make it refuse, wait for more data, or keep a truncated scene |
 | Chunk size 50 | announced by the speaker in its ready reply (`00 32`) | whether it varies by model or firmware | a real upload should read it from the ready reply and stop if it differs from 50 |
