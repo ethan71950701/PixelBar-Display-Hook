@@ -1516,6 +1516,45 @@ the bitmap's SHA-256), and the optional `limits.json`
   day would take about 1,000 days (2.7 years) / 27 years to reach that
   endurance; this is an illustration, not a measurement.
 
+## Upload attempt 4: stopped at the first frame (confirmed by this live test, 2026-10-25)
+
+What was planned: the silhouette picture (settings `--fit contain --mode
+threshold --invert`, bitmap SHA-256 `c6cdc4852165e993`, previewed and bound with
+`--expect-sha c6cdc4852165`), sent with `image ... --send` as capture 20's
+scene. Before it, the text colour had been set to pure white and `Hello` shown
+(`ef 03 ff ff ff`, reply `2f bb ec ef 00 09 03 ff ff ff 00 00 ff ff ff 9c`).
+
+What happened (confirmed, from the tool's output and the upload log): the
+limits and the hash check passed (3 of 5 uploads used, 3 of 10 today), the
+attempt was counted (budget 4 of 5) and the first frame was written, the `ef`
+scene-select frame exactly as in capture 20:
+
+    sent      2e aa ec ef 00 09 | 01 33 66 99 00 01 02 21 ff | e4
+    expected  2f bb ec ef 00 09 | 01 33 66 99 00 01 02 21 ff | f5
+    received  2f bb ec ef 00 09 | 01 ff ff ff 00 01 02 21 ff | c0     (raw reply 2fbbecef000901ffffff00010221ffc0)
+
+The reply differs from the expected one only in the three colour bytes
+(`33 66 99` expected, `ff ff ff` received) and so in its checksum. The rule
+"stop at the first reply that is not the expected one" stopped the run: 1 of 25
+frames written, no reply matched, no retry, no further frame, nothing else
+was sent. The log has the attempt as `started` and `failed` ("reply differs
+from the expected one").
+
+What this shows (one reply; the reading is an inference): the speaker answered
+the scene-select frame with its CURRENT text colour (white, set a moment
+earlier) and not with the colour bytes we sent. In all earlier uploads (2 and 3
+and capture 20) the colour in force equalled `33 66 99`, so the echo looked
+like a plain echo. So the colour bytes of the scene-select frame are not
+applied by the speaker; they are replaced in the reply by the colour in force.
+Everything else in the reply (`01`, `00 01 02 21 ff`) equals what was sent.
+
+What it does not show: what the speaker did with the scene-select frame (the
+screen after it is the user's observation, see below if it was recorded), and
+whether a later upload would work: the upload itself (start, data, end) was
+not started. The check that expects an exact echo of the colour bytes was
+stricter than what the speaker does; it has not been changed (a change to what
+counts as an expected reply needs the user's approval).
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The

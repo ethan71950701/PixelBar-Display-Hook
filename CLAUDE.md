@@ -98,7 +98,12 @@ Workflow and status:
      up to 7448 bytes; XX XX is not tied to the image count (no evidence what
      it is); T == ef p6 in all 8 uploads; the device sets the upload pace
      (~46 ms per 50-byte chunk). See "Animation scenes" in docs/protocol.md.
-     Own pictures (developed, NOTHING sent yet): `python -m pixelbar image PIC`
+     Upload attempt 4 (silhouette B, text colour white) STOPPED at step 0 on
+     2026-10-25: the speaker's reply to the ef scene-select frame carried its
+     current colour (ff ff ff) instead of the 33 66 99 we sent, so the strict
+     "exact echo" check stopped the run after 1 of 25 frames. Budget 4 of 5
+     used. Not retried; changing the check needs the user's approval.
+     Own pictures (developed; one real upload attempt so far, see above): `python -m pixelbar image PIC`
      (dry run by default) and `prepare PIC OUT.png`, Pillow optional
      (pixelbar/prepare.py only). Limits that only ~/.pixelbar/limits.json can
      raise: 5 uploads in total (3 used), 10 per day (3 used today), no
