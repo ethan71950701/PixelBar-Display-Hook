@@ -53,6 +53,21 @@ def unpack_pixels(image):
     return rows
 
 
+def pixel_location(x, y):
+    """(byte index, bit) of the pixel (x, y) in a 256x32 image: vertical bytes, least significant bit on top."""
+    if not (0 <= x < WIDTH and 0 <= y < HEIGHT):
+        raise ValueError(f"pixel ({x}, {y}) is outside the {WIDTH}x{HEIGHT} image")
+    return (y // 8) * WIDTH + x, y % 8
+
+
+def set_pixel(image_data, x, y, on=True):
+    """Return a copy of the image data with the pixel (x, y) of the first image switched on or off."""
+    index, bit = pixel_location(x, y)
+    data = bytearray(image_data)
+    data[index] = data[index] | (1 << bit) if on else data[index] & ~(1 << bit)
+    return bytes(data)
+
+
 def record_stream(image_data, record_type, xx):
     """Cut the image data into 128-byte pieces and give each its 5-byte header."""
     if not image_data or len(image_data) % IMAGE_BYTES:

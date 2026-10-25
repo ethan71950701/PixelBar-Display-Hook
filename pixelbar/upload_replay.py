@@ -29,12 +29,63 @@ UNSOLICITED_COMMANDS = (0xEE, 0x66)
 FIXTURE = os.path.join(os.path.dirname(__file__), "..", "tests", "fixtures", "captured_uploads.json")
 
 
-def load_plan(fixture=FIXTURE):
-    """Return (steps, checks): steps = [(label, OUT frame, expected reply or None)]."""
+MIN_BORDER = 4          # stage 3: the changed pixel is at least this far from every border
+UPLOAD_LIMIT = 5        # stage 3: at most this many uploads in total
+
+
+def pixel_problems(image, x, y):
+    """Why (x, y) is not an allowed stage-3 pixel in this image (empty list = allowed)."""
+    rows = upload.unpack_pixels(image[:upload.IMAGE_BYTES])
+    top = min((r for r in range(upload.HEIGHT) if any(rows[r])), default=upload.HEIGHT)
+    problems = []
+    if not (MIN_BORDER <= x <= upload.WIDTH - 1 - MIN_BORDER and MIN_BORDER <= y <= upload.HEIGHT - 1 - MIN_BORDER):
+        problems.append(f"closer than {MIN_BORDER} pixels to a border")
+    elif y >= top:
+        problems.append(f"not above the text (the first lit row of the image is {top})")
+    elif rows[y][x]:
+        problems.append("already lit")
+    return problems
+
+
+class UploadBudget:
+    """Counts upload attempts in a small file outside the repository; refuses more than `limit`."""
+
+    def __init__(self, path, limit=UPLOAD_LIMIT):
+        self.path, self.limit = path, limit
+
+    def used(self):
+        try:
+            with open(self.path, encoding="utf-8") as fh:
+                return int(fh.read().strip() or 0)
+        except (OSError, ValueError):
+            return 0
+
+    def take(self):
+        used = self.used()
+        if used >= self.limit:
+            raise RuntimeError(f"upload budget used up ({used} of {self.limit})")
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as fh:
+            fh.write(str(used + 1))
+        return used + 1
+
+
+def frame_differences(steps, captured):
+    """{step index: [byte offsets that differ]} between the planned OUT frames and the captured ones."""
+    return {i: [k for k in range(64) if s[1][k] != captured[i][k]] for i, s in enumerate(steps) if s[1] != captured[i]}
+
+
+def load_plan(fixture=FIXTURE, pixel=None):
+    """Return (steps, checks): steps = [(label, OUT frame, expected reply or None)].
+
+    pixel=(x, y) switches that one pixel on in the image data (stage 3); everything else,
+    including every unknown field, stays as captured.
+    """
     with open(fixture, encoding="utf-8") as fh:
         c = json.load(fh)[KEY]
     ef = bytes.fromhex(c["ef_payload"])
-    image = bytes.fromhex(c["image_hex"])
+    captured_image = bytes.fromhex(c["image_hex"])
+    image = captured_image if pixel is None else upload.set_pixel(captured_image, *pixel)
     built = upload.upload_sequence(image, c["type"], c["xx"], tuple(ef[1:4]), ef[7])
     expected = upload.expected_replies(built)
     n = len(built)
@@ -51,8 +102,25 @@ def load_plan(fixture=FIXTURE):
         else:
             label, reply = f"17 data seq {i - 2}", expected[i]
         steps.append((label, frame, reply))
+    captured_out = [bytes.fromhex(h) for h in c["out"]]
+    if pixel is None:
+        change_checks = {"OUT frames equal the TempoHub frames of capture 20 (fixture)": built == captured_out}
+    else:
+        diffs = frame_differences(steps, captured_out)
+        changed = next(iter(diffs)) if len(diffs) == 1 else None
+        only = diffs[changed] if changed is not None else []
+        checksum_at = None if changed is None else 6 + int.from_bytes(steps[changed][1][4:6], "big")
+        data_offsets = [k for k in only if k != checksum_at]
+        bits = sum(bin(a ^ b).count("1") for a, b in zip(image, captured_image))
+        change_checks = {
+            f"pixel {pixel} is allowed (blank area above the text, {MIN_BORDER}+ pixels from every border)": not pixel_problems(captured_image, *pixel),
+            "exactly one bit of the image data differs from capture 20": bits == 1,
+            "exactly one OUT frame differs from capture 20": len(diffs) == 1,
+            "in that frame only the image byte and the frame's own checksum differ": len(only) == 2 and checksum_at in only and len(data_offsets) == 1,
+            "every other OUT frame equals the TempoHub frame of capture 20": len(diffs) == 1,
+        }
     checks = {
-        "OUT frames equal the TempoHub frames of capture 20 (fixture)": built == [bytes.fromhex(h) for h in c["out"]],
+        **change_checks,
         "expected replies equal the speaker's replies in capture 20": expected == [bytes.fromhex(h) for h in c["in"]],
         "record header T is the captured 0x02": c["type"] == 0x02,
         "record header XX XX is the captured 0x0064": c["xx"] == 0x0064,

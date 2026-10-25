@@ -3,6 +3,9 @@
 Run: python -m unittest discover -s tests -t .
 """
 import ast
+import json
+import os
+import tempfile
 import unittest
 
 from pixelbar import frames, upload, upload_replay
@@ -75,6 +78,62 @@ class PlanTests(unittest.TestCase):
             elif isinstance(node, ast.ImportFrom):
                 imported |= {a.name for a in node.names} | {(node.module or "").split(".")[0]}
         self.assertEqual(imported & {"hid", "device", "serial", "usb"}, set())
+
+
+PIXEL = (128, 4)
+with open(upload_replay.FIXTURE, encoding="utf-8") as _fh:
+    IMAGE = bytes.fromhex(json.load(_fh)["20"]["image_hex"])
+
+
+class PixelTests(unittest.TestCase):
+    def test_pixel_location(self):
+        self.assertEqual(upload.pixel_location(128, 4), (128, 4))      # page 0, column 128, bit 4
+        self.assertEqual(upload.pixel_location(0, 8), (256, 0))        # next page
+        self.assertEqual(upload.pixel_location(255, 31), (3 * 256 + 255, 7))
+        with self.assertRaises(ValueError):
+            upload.pixel_location(256, 0)
+
+    def test_set_pixel_changes_one_bit(self):
+        changed = upload.set_pixel(IMAGE, *PIXEL)
+        self.assertEqual(sum(bin(a ^ b).count("1") for a, b in zip(IMAGE, changed)), 1)
+        self.assertEqual(IMAGE[128], 0x00)
+        self.assertEqual(changed[128], 0x10)
+        self.assertEqual(upload.unpack_pixels(changed)[4][128], 1)
+        self.assertEqual(upload.set_pixel(changed, *PIXEL, on=False), IMAGE)
+
+    def test_allowed_and_rejected_pixels(self):
+        self.assertEqual(upload_replay.pixel_problems(IMAGE, *PIXEL), [])
+        for x, y in [(0, 0), (255, 0), (0, 31), (255, 31), (3, 4), (128, 3), (252, 4), (128, 28)]:
+            self.assertTrue(upload_replay.pixel_problems(IMAGE, x, y), (x, y))    # corners and nearer than 4 to a border
+        self.assertTrue(upload_replay.pixel_problems(IMAGE, 100, 6))              # on a lit pixel / inside the text area
+        self.assertTrue(upload_replay.pixel_problems(IMAGE, 128, 12))             # below the top of the text
+
+    def test_plan_differs_in_one_frame_only(self):
+        steps, checks = upload_replay.load_plan(pixel=PIXEL)
+        for name, ok in checks.items():
+            self.assertTrue(ok, name)
+        original, _ = upload_replay.load_plan()
+        diffs = upload_replay.frame_differences(steps, [s[1] for s in original])
+        self.assertEqual(list(diffs), [4])                  # data seq 2: the first data byte of record 1 is image byte 128
+        self.assertEqual(len(diffs[4]), 2)                  # that byte and the frame's own checksum
+        self.assertEqual([s[2] for s in steps], [s[2] for s in original])   # same expected replies
+        a, b = original[4][1], steps[4][1]
+        data_at, checksum_at = diffs[4]
+        self.assertEqual(checksum_at, 6 + int.from_bytes(a[4:6], "big"))
+        self.assertEqual(a[data_at] ^ b[data_at], 0x10)                   # bit 4 of one byte
+        self.assertEqual((b[checksum_at] - a[checksum_at]) % 256, 0x10)   # the frame checksum follows from it
+
+    def test_disallowed_pixel_fails_the_plan_checks(self):
+        _, checks = upload_replay.load_plan(pixel=(0, 0))
+        self.assertFalse(all(checks.values()))
+
+    def test_budget_refuses_the_sixth_upload(self):
+        with tempfile.TemporaryDirectory() as d:
+            budget = upload_replay.UploadBudget(os.path.join(d, "sub", "count.txt"))
+            self.assertEqual([budget.take() for _ in range(5)], [1, 2, 3, 4, 5])
+            with self.assertRaises(RuntimeError):
+                budget.take()
+            self.assertEqual(budget.used(), 5)
 
 
 class ExchangeTests(unittest.TestCase):
