@@ -41,6 +41,7 @@ Workflow and status:
    B (DONE 2026-10-25) tools/replay_frame.py sent only the captured "A" frame,
      unmodified; device replied 2f cc ec e8 00 01 01 a2 and the screen showed A
      (user-confirmed). Needs --send --yes-i-closed-tempohub, TempoHub closed.
-   C (AB DONE 2026-10-25) self-built AB sent via `replay_frame.py --frame AB`;
-     device acked, screen showed AB (user-confirmed). ABC not sent yet.
+   C (DONE 2026-10-25) self-built AB and ABC sent via `replay_frame.py --frame`;
+     device acked each, screen showed AB / ABC (user-confirmed).
+     Not yet sent from code: 你好 (UTF-8), colour (ef). Each needs the user's OK.
 Update this status list as steps finish.

@@ -370,8 +370,12 @@ wrote one frame built by `pixelbar.frames.text_frame("AB")`:
 - Screen: the user reported it changed from `A` to `AB` (user observation).
   So a frame built by our own code, not just a replayed one, is accepted and
   displayed (confirmed for this frame).
-- Not yet sent from our code: `ABC`, `你好`, any colour (`ef`). Those need
-  separate approval.
+- Then `--frame ABC` (built by our code, verified identical to capture 04):
+  frame `2e aa ec e8 00 05 00 03 41 42 43 4c`, same reply
+  `2f cc ec e8 00 01 01 a2`; the user reported the screen changed from `AB`
+  to `ABC` (user observation). Confirmed for this frame.
+- Not yet sent from our code: `你好`, any colour (`ef`). Those need separate
+  approval.
 
 ## Earlier notes from another session (merged)
 
