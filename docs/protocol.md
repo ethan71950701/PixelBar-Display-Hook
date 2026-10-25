@@ -1676,6 +1676,52 @@ user is asked to report after each: how many pictures the speaker shows, in
 which order, whether the block moves, how fast, whether it loops or stops, and
 anything odd.
 
+#### Step 1: 2 pictures (upload 6 of 20, 2026-10-25)
+
+Sent with `python -m pixelbar animation --frames 2 --send --expect-sha
+30fb62b8a355 --yes-i-closed-tempohub`; the screen showed white `Hello`
+beforehand (user-confirmed). Result: 46/46 frames written, 45 replies, all
+matched (the `ef` reply carried the colour in force, `ffffff`, as in upload 5),
+no unsolicited frame, 2.61 s in total. Reported by the user, verbatim:
+「两张图轮流显示，顺序 1 到 2，方块在移动」 — 已确认（本次实机测试）.
+
+Not answered by that sentence (not asked again, so nothing is claimed): how fast
+the pictures change, whether it loops without end, and whether anything else was
+odd. Not verified.
+
+#### Step 2: 7 pictures (upload 7 of 20, 2026-10-25)
+
+Sent with `python -m pixelbar animation --frames 7 --send --expect-sha
+e29b09844990 --yes-i-closed-tempohub` (TempoHub process count 0 beforehand).
+Result: 152/152 frames written, 151 replies, all matched, no unsolicited
+frame, 8.20 s in total (about 8 s expected). Reported by the user, verbatim,
+answering the four questions (how many pictures / order / speed and loop /
+anything odd): 「1.7張圖2對3大概1秒1循環，會循環4沒有」 — 已确认（本次实机测试）.
+Read as: 1 seven pictures, 2 the order is right, 3 about "1秒1" and it loops,
+4 nothing odd. The phrase 「大概1秒1」 was not asked to be made precise: it is
+not recorded whether it means about one second per picture or one second for
+the whole loop (7 pictures at 1 s each would be 7 s per loop). Not verified.
+
+#### Step 3: 20 pictures (upload 8 of 20, 2026-10-25)
+
+Sent with `python -m pixelbar animation --frames 20 --send --expect-sha
+36822aadd826 --yes-i-closed-tempohub` (TempoHub process count 0 beforehand).
+Result: 429/429 frames written, 428 replies, all matched, no unsolicited
+frame, 22.25 s in total (about 21 s expected, limit 57 s). Reported by the
+user, verbatim: 「1.20張2會對3大概4秒循環一次4沒有」 — 已确认（本次实机测试）.
+Read as: 1 twenty pictures, 2 the order is right (the user answered "會對"),
+3 about 4 seconds per loop, 4 nothing odd. This also settles the ambiguous
+"大概1秒1循環" of step 2 only if it meant "about 1 second per loop"; that
+reading was not confirmed.
+
+Derived by arithmetic, not observed per picture (the user gave loop times
+estimated by eye): 20 pictures in about 4 s is about 0.2 s per picture; 7
+pictures in about 1 s (if that is what was meant) would be about 0.14 s per
+picture. These two do not agree exactly and nothing here says the speaker uses
+a fixed time per picture; how the speaker chooses the speed (and whether `XX
+XX` plays a part) is not known. Not asked whether the block reached the right
+edge; not verified.
+
 Not known and to be learned (or to go wrong):
 
 - The speaker's capacity for pictures per scene. The most seen is 7. How

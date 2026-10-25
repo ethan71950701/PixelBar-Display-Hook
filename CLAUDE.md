@@ -119,8 +119,14 @@ Workflow and status:
      generated test animation, dry run by default; plan checks in
      upload_replay._multi_image_checks; exchange time limit max(30 s, 5 s +
      0.12 s per chunk)). The user chose the staged live test 2 -> 7 -> 20
-     pictures; nothing of it sent yet; each step needs a dry run shown and the
-     user's go-ahead. "Frame" = one 64-byte message, "picture" = one 256x32
+     pictures. Step 1 (2 pictures, upload 6 of 20) DONE 2026-10-25: all 45 replies
+     matched; user: 「两张图轮流显示，顺序 1 到 2，方块在移动」 (speed/loop not
+     reported). Step 2 (7 pictures, upload 7 of 20) DONE: all 151 replies
+     matched; user: 「1.7張圖2對3大概1秒1循環，會循環4沒有」 (7 pictures, order
+     right, loops, nothing odd; "1秒1" unclear). Step 3 (20 pictures, upload 8 of 20) DONE: all 428 replies
+     matched, 22.25 s; user: 「1.20張2會對3大概4秒循環一次4沒有」 (20 pictures,
+     order right, about 4 s per loop, nothing odd). Staged test finished (each step had a
+     dry run and the user's go-ahead). "Frame" = one 64-byte message, "picture" = one 256x32
      image (see docs/protocol.md).
      Own pictures (developed; real uploads: attempt 4 stopped, upload 5 ok): `python -m pixelbar image PIC`
      (dry run by default) and `prepare PIC OUT.png`, Pillow optional
