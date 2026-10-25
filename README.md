@@ -6,6 +6,11 @@ PixelBar speaker (basic and enhanced editions) from Windows and Android.
 No public protocol exists, so the first step is capturing what the official
 apps send. Status: protocol unknown. Findings go in `docs/protocol.md`.
 
+Optional, only for the `image` and `prepare` commands (your own pictures):
+`pip install pillow`. Everything else works without it. Both commands only
+preview and convert by default; read "Uploading your own pictures" in
+`docs/protocol.md` before sending anything.
+
 ## Step 1: identify the device (Windows)
 
     pip install hidapi pyserial

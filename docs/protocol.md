@@ -1367,6 +1367,15 @@ the speaker was powered off completely; we do not know whether it has one). The
 screen was not photographed or compared pixel by pixel; "測試圖" is the user's
 word for what was shown.
 
+### Restore after upload 3 (confirmed by this live test)
+
+Afterwards the user restored the scene in TempoHub (clicked another scene,
+then 「兼职成年人」 again). The user's words, as typed: `我已還原：先点别的场景再点回「兼职成年人」，屏幕 恢复了`
+("I restored it: clicked another scene, then back to 「兼职成年人」, the screen
+recovered"). The user did not say in other words what the screen showed after
+the restore; the click was on 「兼职成年人」, as in the two earlier restores. The
+USB traffic of this click was not captured.
+
 ## Assessment: write risk of a host-driven slideshow (assumptions marked)
 
 Question: could a program make a slow slideshow by uploading one image after
@@ -1406,6 +1415,93 @@ The numbers below are an illustration under ASSUMPTIONS, not measurements:
   changes; never in a loop without a limit; keep a counter and a daily cap in
   code (the 5-upload budget file is the test-phase version of this); treat each
   upload as a possible flash write until shown otherwise.
+
+## Uploading your own pictures: `image` and `prepare` (development only, nothing sent)
+
+Status: written and tested with a fake device and with test pictures made in
+memory. No converted picture has been uploaded to the speaker yet; the first
+real upload of an own picture needs the user's separate approval.
+
+```
+python -m pixelbar image PICTURE [--fit cover|contain|stretch] [--focus-x 0..1] [--focus-y 0..1]
+                         [--mode dither|threshold] [--threshold N] [--invert] [--autocontrast]
+                         [--preview-dir DIR] [--send --yes-i-closed-tempohub]
+python -m pixelbar prepare PICTURE OUT.png [the same picture options] [--overwrite]
+```
+
+- Pillow is an OPTIONAL dependency: `pip install pillow` (tested with Pillow
+  13.0.0). It is imported only in `pixelbar/prepare.py`, and only when a
+  picture is opened. Without it `image` and `prepare` stop with the message
+  "Pillow is not installed ... pip install pillow"; the frame builder, the text
+  and colour commands and the tools work as before (tested).
+- Conversion: EXIF orientation is applied; transparent pixels count as black;
+  pictures larger than 8000 pixels on a side are refused. `--fit cover`
+  (default) fills the screen and crops what does not fit, `--focus-x/-y` (0 to
+  1, default 0.5) choose which part is kept; `contain` keeps the whole picture
+  with black bars (a small picture is enlarged); `stretch` distorts. Because
+  the screen is 8:1, `cover` usually keeps only a horizontal band across the
+  middle of the picture: a 4:3 photo keeps one sixth of its height. Black and
+  white: `--mode dither` (Floyd-Steinberg, default) or `threshold`; a pixel is
+  lit when its brightness is at or above `--threshold` (default 128; in dither
+  mode it is the quantiser's threshold); `--invert` swaps light and dark
+  (transparent areas stay black); `--autocontrast` stretches the contrast first.
+- `prepare` only converts and writes a 256x32 black-and-white PNG for you to
+  look at (it will not overwrite a file without `--overwrite`). Keep such PNG
+  files outside the repository.
+- `image` prints a `#` / `.` picture of the bitmap that would be uploaded
+  (decoded back from the 1024 bytes, not from an earlier stage), writes a 4x
+  preview PNG of that same bitmap to `--preview-dir` (default
+  `C:\pixelbar-raw\preview`, outside the repository), and shows how the
+  upload differs from capture 20: only data frames and their own checksums
+  (the `ef`, start and end frames are identical), with the unknown fields
+  (`T`, `XX XX`, `p5`, `p6`, `p7`) at capture 20's values. Without `--send`
+  nothing touches the device; a test makes every device function raise and
+  blocks importing hidapi while the dry run runs.
+- Uploading (`image ... --send --yes-i-closed-tempohub`, or the interactive
+  "TempoHub closed?" question): the bounded exchange of stage 2, once. Every
+  picture goes into the scene of capture 20 and replaces it until TempoHub
+  uploads it again (clicking another scene and then 「兼职成年人」 restored it
+  three times).
+
+### Limits the command line cannot raise
+
+State is in `~/.pixelbar/` (outside the repository): `stage3_uploads.txt` (the
+number of uploads started; 3 were used before this work, the file already
+said 3), `upload_log.jsonl` (one start line and one end line per upload, with
+the bitmap's SHA-256), and the optional `limits.json`
+(`{"total": 5, "per_day": 3}`, these are the defaults).
+
+- Total budget: 5 uploads; the 3 already made count.
+- Daily cap: 3 uploads per calendar day (counted from the log). The three uploads
+  of 2026-10-25 were written into the log afterwards from the session notes
+  (marked in their `note` field; no times), so today's cap is already used up.
+- No repeat: a bitmap whose SHA-256 equals that of the last COMPLETED upload is
+  refused (the picture would not change). A failed attempt counts against the
+  budget and the day but is not "the picture is already there". If the screen
+  was changed in TempoHub since and the same bitmap really is to be sent again,
+  the last `ok` line of the log has to be removed by hand.
+- A limit can only be raised by editing `limits.json`; there is no command line
+  option for it (a test checks that none of `--total`, `--per-day`, `--limit`,
+  `--budget`, `--force`, `--allow-repeat` exists). A damaged `limits.json` or
+  log stops everything instead of being ignored.
+- The attempt is counted after the device was opened (a missing device costs
+  nothing) and before the first frame is written.
+
+### Not verified yet
+
+- No own picture has been uploaded: how a dithered picture looks on the real
+  screen, whether the default settings give a good result, and the pixel pitch
+  of the panel are unknown.
+- The upload path of `image --send` was exercised only with a fake device;
+  `device.open_device` has not been run against the real speaker (stages 2 and
+  3 used the tools' own code to open it).
+- Only single-image uploads are built (one 256x32 picture); multi-image scenes
+  and the meaning of `XX XX` are untouched.
+- Pillow 13.0.0 only; phone photos with real EXIF data, CMYK, 16-bit and
+  animated pictures were not tried (an in-memory PNG with an EXIF orientation
+  tag was).
+- The default daily cap of 3 and the preview folder are choices made here, not
+  measured limits; the default folder is a Windows path.
 
 ## Unknown fields in the scene upload, and the risk of changing them
 

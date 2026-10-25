@@ -34,6 +34,20 @@ def find_path(hid):
     return matches[0]["path"]
 
 
+def open_device():
+    """Open the 0xFF14 collection and return the hidapi device (the caller closes it)."""
+    if tempohub_running():
+        raise DeviceError("a TempoHub process is running; close it first (nothing was sent)")
+    try:
+        import hid
+    except ImportError:
+        raise DeviceError("hidapi missing: pip install hidapi") from None
+    path = find_path(hid)
+    dev = hid.device()
+    dev.open_path(path)
+    return dev
+
+
 def send_frame(frame):
     """Write `frame` (64 bytes, Report ID first) and return the first reply (may be empty)."""
     if len(frame) != 64:

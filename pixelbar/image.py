@@ -155,6 +155,16 @@ def png_to_bitmap(data, threshold=DEFAULT_THRESHOLD, bit_order="lsb-top"):
     return pack_pixels(png_to_pixels(data, threshold), bit_order)
 
 
+def scale_rows(rows, factor):
+    """Repeat every pixel `factor` times in both directions (for the enlarged preview)."""
+    return [[v for v in row for _ in range(factor)] for row in rows for _ in range(factor)]
+
+
+def rows_to_png(rows, scale=1):
+    """PNG bytes (black and white) of rows of 0/1; scale > 1 enlarges it by repeating pixels."""
+    return encode_png_gray([[255 if v else 0 for v in row] for row in scale_rows(rows, scale)])
+
+
 def preview(rows):
     """Text picture of the 256x32 image: '#' lit, '.' dark, with a column ruler and row numbers."""
     ruler = "    " + "".join(str((x // 10) % 10) if x % 10 == 0 else " " for x in range(WIDTH))

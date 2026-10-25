@@ -92,11 +92,19 @@ Workflow and status:
      one minute (user's estimate) the test image was still shown (user-confirmed).
      So uploaded images survive a power-off; flash wear per upload is still
      unknown. Budget file = 3. See "Assessment: write risk of a host-driven
-     slideshow" in docs/protocol.md (assumptions marked). Restore not done.
+     slideshow" in docs/protocol.md (assumptions marked). Restored through
+     TempoHub afterwards: the screen recovered (user-confirmed).
      Captures 30-33 (animation scenes) analysed read-only: 1 / 2 / 2 / 7 images,
      up to 7448 bytes; XX XX is not tied to the image count (no evidence what
      it is); T == ef p6 in all 8 uploads; the device sets the upload pace
      (~46 ms per 50-byte chunk). See "Animation scenes" in docs/protocol.md.
+     Own pictures (developed, NOTHING sent yet): `python -m pixelbar image PIC`
+     (dry run by default) and `prepare PIC OUT.png`, Pillow optional
+     (pixelbar/prepare.py only). Limits that only ~/.pixelbar/limits.json can
+     raise: 5 uploads in total (3 used), 3 per day (today's 3 are used), no
+     repeat of the last completed bitmap. The first real upload of an own
+     picture needs the user's separate approval. See "Uploading your own
+     pictures" in docs/protocol.md (incl. what is not verified).
      Prepared (nothing sent): tools/png_upload.py --dry-run converts a 256x32
      PNG (outside the repo) to the bitmap and shows the whole upload and its
      differences from capture 20; there is no send path for converted images.
