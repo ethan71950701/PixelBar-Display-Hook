@@ -356,6 +356,23 @@ TempoHub fully closed. No other command was sent.
   or status poll was needed first (confirmed for this case: TempoHub was
   closed and nothing else was sent in this session before the write).
 
+## Stage C: self-built "AB" frame (2026-10-25)
+
+`python tools/replay_frame.py --frame AB --send --yes-i-closed-tempohub`
+wrote one frame built by `pixelbar.frames.text_frame("AB")`:
+
+    2e aa ec e8 00 04 00 02 41 42 07  (+ zero padding to 64 bytes)
+
+- Before sending it was verified byte-identical to the frame TempoHub sent in
+  capture 03 (confirmed). TempoHub was closed; nothing else was sent.
+- `write()` accepted 64 bytes; one read returned `2f cc ec e8 00 01 01 a2`,
+  the same reply as for "A" and as in the captures (confirmed).
+- Screen: the user reported it changed from `A` to `AB` (user observation).
+  So a frame built by our own code, not just a replayed one, is accepted and
+  displayed (confirmed for this frame).
+- Not yet sent from our code: `ABC`, `你好`, any colour (`ef`). Those need
+  separate approval.
+
 ## Earlier notes from another session (merged)
 
 Added to the same branch by a separate session before captures existed. Kept
