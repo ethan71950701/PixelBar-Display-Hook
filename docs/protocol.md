@@ -380,7 +380,20 @@ wrote one frame built by `pixelbar.frames.text_frame("AB")`:
   `2f cc ec e8 00 01 01 a2`; the user reported the screen changed from `ABC`
   to `你好` (user observation). Confirmed: UTF-8 text with a byte count is
   accepted and rendered by the device's own font.
-- Not yet sent from our code: any colour (`ef`). Needs separate approval.
+- Then `--frame COLOR_330200` (cmd `ef`, built by our code, verified
+  identical to capture 08): frame `2e aa ec ef 00 04 03 33 02 00 c1`. Reply
+  `2f bb ec ef 00 09 03 33 02 00 00 00 ff ff ff d4` (tag `bb`, payload
+  `03 33 02 00 00 00 ff ff ff`), identical to the reply in capture 08
+  (confirmed). The user reported that the colour turned red (user
+  observation; they did not say which screen element changed, presumably the
+  text colour - not recorded). So `ef` with `03` + R G B is accepted and takes
+  effect, and `33 02 00` (R=0x33, G=0x02, B=0x00) renders as red, which
+  confirms the R G B order on the device (confirmed for this value).
+- Still unexplained: the leading `03` (never varied; no other value was sent)
+  and which element `ef` colours. The reply tag for `ef` is `bb`, for `e8`
+  it is `cc`.
+- Not yet sent from our code: any colour other than the two captured ones
+  (`33 02 00`, `00 33 07`); the allow-list has no free colour input.
 
 ## Earlier notes from another session (merged)
 

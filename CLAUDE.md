@@ -43,5 +43,7 @@ Workflow and status:
      (user-confirmed). Needs --send --yes-i-closed-tempohub, TempoHub closed.
    C (DONE 2026-10-25) self-built AB, ABC and 你好 (--frame NIHAO) sent via
      `replay_frame.py`; device acked each, screen showed them (user-confirmed).
-     Not yet sent from code: colour (ef). It needs the user's OK first.
+     Colour: `--frame COLOR_330200` (03 33 02 00) sent; device echoed it, colour
+     turned red (user-confirmed). The leading 03 is still unexplained and is
+     never varied. Free colour input / arbitrary text are NOT implemented yet.
 Update this status list as steps finish.
