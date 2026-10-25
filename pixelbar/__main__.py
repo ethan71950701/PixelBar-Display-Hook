@@ -76,9 +76,9 @@ def add_prepare_options(p):
     p.add_argument("--autocontrast", action="store_true", help="stretch the contrast before the black and white step")
 
 
-def prepared_rows(args):
+def prepared_rows(args, picture=None):
     try:
-        return prepare.prepare_file(args.picture, fit=args.fit, focus_x=args.focus_x, focus_y=args.focus_y, mode=args.mode,
+        return prepare.prepare_file(picture or args.picture, fit=args.fit, focus_x=args.focus_x, focus_y=args.focus_y, mode=args.mode,
                                     threshold=args.threshold, invert=args.invert, autocontrast=args.autocontrast)
     except prepare.PrepareError as err:
         sys.exit(f"error: {err}")
@@ -202,6 +202,34 @@ def cmd_animation(args):
     finish_upload(args, steps, checks, bitmap, sha)
 
 
+def cmd_slideshow(args):
+    """Several of your own pictures (2 to 20, in the order given) in one upload; dry run by default."""
+    if args.send and args.dry_run:
+        sys.exit("--send and --dry-run contradict each other")
+    if not 1 <= len(args.pictures) <= testanim.FRAMES:
+        sys.exit(f"error: give between 1 and {testanim.FRAMES} pictures")
+    pictures = [prepared_rows(args, path) for path in args.pictures]
+    bitmap = b"".join(image.pack_pixels(rows) for rows in pictures)
+    sha = image_send.bitmap_sha256(bitmap)
+    n = len(pictures)
+    print(f"slideshow of {n} pictures, fit {args.fit}, mode {args.mode}, threshold {args.threshold}"
+          f"{', inverted' if args.invert else ''}{', autocontrast' if args.autocontrast else ''}; "
+          f"{n * upload.IMAGE_BYTES} bytes of image data; bitmap sha256 {sha[:16]}")
+    print(f"{'no.':>4} {'lit pixels':>11}  file")
+    for k, (rows, path) in enumerate(zip(pictures, args.pictures)):
+        print(f"{k + 1:>4} {sum(map(sum, rows)):>11}  {os.path.basename(path)}")
+    os.makedirs(args.preview_dir, exist_ok=True)
+    out = os.path.join(args.preview_dir, f"slideshow_{n}pictures_{sha[:8]}_x3.png")
+    with open(out, "wb") as fh:
+        fh.write(image.stack_png(pictures, 3))
+    print(f"wrote the 3x contact sheet of all {n} pictures (top to bottom, in the order they are uploaded): {out}")
+
+    steps, checks = upload_replay.load_plan(image=bitmap)
+    print(f"\nupload sequence: {len(steps)} frames (1 ef, 1 start, {len(steps) - 3} data, 1 end), declared size {n * 8 * 133} bytes, "
+          f"{n * 8} records of 133 bytes; ef, end and the unknown fields are capture 20's, the start frame differs from capture 20's only in the size")
+    finish_upload(args, steps, checks, bitmap, sha)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="pixelbar", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
@@ -217,6 +245,12 @@ def main(argv=None):
     an.add_argument("--preview-dir", default=PREVIEW_DIR, help=f"where the contact sheet PNG goes (default {PREVIEW_DIR}; keep it outside the repository)")
     an.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; required with --send")
     add_send_options(an)
+    sl = sub.add_parser("slideshow", help="1 to 20 of your own pictures in one upload, in the order given (dry run by default)")
+    sl.add_argument("pictures", nargs="+")
+    add_prepare_options(sl)
+    sl.add_argument("--preview-dir", default=PREVIEW_DIR, help=f"where the contact sheet PNG goes (default {PREVIEW_DIR}; keep it outside the repository)")
+    sl.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; required with --send")
+    add_send_options(sl)
     pr = sub.add_parser("prepare", help="only convert a picture to a 256x32 black-and-white PNG for you to check")
     pr.add_argument("picture")
     pr.add_argument("output")
@@ -238,6 +272,8 @@ def main(argv=None):
         return cmd_image(args)
     if args.command == "animation":
         return cmd_animation(args)
+    if args.command == "slideshow":
+        return cmd_slideshow(args)
     if args.command == "prepare":
         return cmd_prepare(args)
     if args.send and args.dry_run:

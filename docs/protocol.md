@@ -1738,6 +1738,32 @@ Not known and to be learned (or to go wrong):
 - Like every upload it replaces the scene 「兼职成年人」 until it is clicked
   again in TempoHub.
 
+### Own pictures as a slideshow: 20 frames of a video (upload 9 of 20, 2026-10-25)
+
+At the user's request: a video file (outside the repo; 1440x1080, 60 fps, 219 s)
+was decoded with PyAV (`pip install av` into the embedded Python, with the
+user's permission; used only for this extraction, not imported by the
+`pixelbar` package). One frame per second for the first 20 seconds (t = 0, 1,
+..., 19 s) was scaled to 32 pixels high (about 43 wide), centred on a black
+256x32 canvas ("whole picture, centred", the user's choice), then thresholded at
+128 (bright = lit, not inverted). The pictures and the contact sheet stay in
+`C:\pixelbar-raw`. New command `python -m pixelbar slideshow PIC... [--mode
+threshold --fit cover]` (1 to 20 pictures in the given order; dry run by
+default; same checks, limits and `--expect-sha` rule as `animation`).
+
+Sent with `--send --expect-sha e7fad7772f18 --yes-i-closed-tempohub` (TempoHub
+process count 0 beforehand): 429/429 frames written, 428 replies, all matched,
+23.05 s. One unsolicited frame was recorded at step 184: `2fbbec660002100827`
+(a device-to-host frame with command `66`, ignored by the rule for unsolicited `ee`/`66`); this
+is the first time one was seen during an upload. What it means is not known.
+
+Reported by the user, verbatim: 「1.20張2可以3大概4秒，會循環4沒有」 — 已确认（本次实机测试）.
+Read as: 20 pictures, it "works" ("可以", not asked what exactly was
+recognised), about 4 seconds per loop (the same as the generated 20-picture
+animation), it loops, nothing odd. Not verified: whether the first two pictures
+were black as planned, and whether the silhouettes were recognisable; the
+number 4 in 3 and 4 is the user's own numbering of the questions.
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The
