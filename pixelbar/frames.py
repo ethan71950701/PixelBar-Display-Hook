@@ -17,6 +17,14 @@ SECOND_MAGIC = 0xEC
 CMD_SET_TEXT = 0xE8
 CMD_SET_COLOR = 0xEF
 
+REPORT_ID_IN = 0x2F
+TAG_REPLY = 0xBB       # device reply to ef (and most other commands)
+TAG_TEXT_ACK = 0xCC    # device reply to e8
+
+# Longest text actually sent so far (你好 = 6 UTF-8 bytes). Longer text fits in one
+# frame but is unverified, so the CLI refuses it unless --max-bytes is raised.
+VERIFIED_TEXT_BYTES = 6
+
 # report id + tag + magic + cmd + 2 length bytes + checksum
 _OVERHEAD = 7
 MAX_PAYLOAD = FRAME_SIZE - _OVERHEAD
@@ -49,6 +57,17 @@ def color_frame(r, g, b):
         if not 0 <= v <= 255:
             raise ValueError("colour components must be 0..255")
     return build_frame(CMD_SET_COLOR, bytes([0x03, r, g, b]))
+
+
+def expected_text_reply():
+    """Device reply seen for every e8: payload 01 (probably 'accepted')."""
+    return build_frame(CMD_SET_TEXT, b"\x01", report_id=REPORT_ID_IN, tag=TAG_TEXT_ACK)
+
+
+def expected_color_reply(r, g, b):
+    """Device reply seen for ef: the 4 bytes echoed, then 00 00 ff ff ff (meaning unknown)."""
+    return build_frame(CMD_SET_COLOR, bytes([0x03, r, g, b, 0x00, 0x00, 0xFF, 0xFF, 0xFF]),
+                       report_id=REPORT_ID_IN, tag=TAG_REPLY)
 
 
 def parse_hex_color(value):

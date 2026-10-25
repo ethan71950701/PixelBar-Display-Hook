@@ -44,6 +44,13 @@ Workflow and status:
    C (DONE 2026-10-25) self-built AB, ABC and 你好 (--frame NIHAO) sent via
      `replay_frame.py`; device acked each, screen showed them (user-confirmed).
      Colour: `--frame COLOR_330200` (03 33 02 00) sent; device echoed it, colour
-     turned red (user-confirmed). The leading 03 is still unexplained and is
-     never varied. Free colour input / arbitrary text are NOT implemented yet.
+     turned the TEXT colour red (user-confirmed). The leading 03 is still
+     unexplained and is never varied.
+   D (code written 2026-10-25, NOT yet sent) free input: `python -m pixelbar
+     text "..." | color RRGGBB` with `--send --yes-i-closed-tempohub`; default
+     is dry run, one frame per call, text limited to --max-bytes (default 6 =
+     longest verified). Each live step needs the user's OK, in this order:
+     1 text "Hello" (5 B, new content) 2 uncaptured colour e.g. 336699
+     3 text up to 12 B, then 24 B, then 55 B (hard limit), stopping on any
+     odd reply or screen. Compare each reply with the expected one printed.
 Update this status list as steps finish.

@@ -31,6 +31,16 @@ class FrameTests(unittest.TestCase):
             with self.subTest(rgb=rgb):
                 self.assertIn(frames.color_frame(*rgb), captured(capture))
 
+    def test_expected_replies_match_what_the_device_sent(self):
+        # Replies read from the device in stages B/C and in captures 08 / 09.
+        self.assertEqual(frames.expected_text_reply(),
+                         bytes.fromhex("2fccece8000101a2").ljust(64, b"\x00"))
+        self.assertEqual(frames.expected_color_reply(0x33, 0x02, 0x00),
+                         bytes.fromhex("2fbbecef0009033302000000ffffffd4").ljust(64, b"\x00"))
+        # capture 09: IN payload 03 00 33 07 00 00 ff ff ff (checksum not asserted by hand)
+        self.assertEqual(frames.expected_color_reply(0x00, 0x33, 0x07)[:15],
+                         bytes.fromhex("2fbbecef0009030033070000ffffff"))
+
     def test_frame_shape(self):
         f = frames.text_frame("你好")
         self.assertEqual(len(f), 64)
