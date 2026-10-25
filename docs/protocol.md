@@ -463,7 +463,27 @@ the safe refresh rate is far lower than if it only touches RAM.
   reject), and TempoHub's own length limit (a capture of a long text typed in
   TempoHub would show it).
 
-### 4. Other open items
+### 4. Display options in TempoHub (reported by the user, not verified)
+
+The user says the official app has, for the text display, one choice between
+scrolling and static text, and another between centre, left and right
+alignment. None of this has been captured, so:
+
+- The command bytes for these options are unknown. No captured command is known
+  to carry them. Candidates only (no evidence, all constants so far): the
+  leading `00` of the `e8` payload, the leading `03` of `ef`, or the `ee`
+  status bytes 5 and 7 (`01/00` -> `02/01` after the first `e8`).
+- Consequence for the length tests: what the screen shows for long text
+  (whole, cut off, scrolling) depends on the device's current scroll/alignment
+  setting, which we neither know nor control from our code. A result such as
+  "truncated" or "scrolled" therefore describes the setting in force, not a
+  protocol limit. The setting in force at test time must be recorded with each
+  result.
+- To learn the command bytes: capture TempoHub changing ONE option at a time
+  (scroll -> static, then static -> scroll, then left, centre, right), same
+  method as the text captures, and diff the frames.
+
+### 5. Other open items
 
 - `ee` status reply bytes 5 and 7 (`01/00` -> `02/01` after the first `e8`).
 - The 44-byte `6a` table and the other device-info replies (`d8`, `65`, `66`,
