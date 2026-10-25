@@ -350,7 +350,11 @@ TempoHub fully closed. No other command was sent.
 - One read (2 s limit) returned the device reply at once:
   `2f cc ec e8 00 01 01 a2` + zero padding. This is byte-for-byte the reply
   TempoHub received for the same frame in capture 02 (confirmed).
-- Screen result: recorded by the user, see below / the next commit.
+- Screen result: the user watched the speaker and reported that the screen
+  changed to `A` (user observation, 2026-10-25). So a single unmodified
+  host->device `e8` frame is enough to set the text; no handshake, clock sync
+  or status poll was needed first (confirmed for this case: TempoHub was
+  closed and nothing else was sent in this session before the write).
 
 ## Earlier notes from another session (merged)
 
