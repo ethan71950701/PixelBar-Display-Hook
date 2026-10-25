@@ -113,7 +113,7 @@ def main():
         return
     print(f"reply ({len(reply)} bytes):")
     print(hex_rows(reply))
-    if reply[:3] == b"\x2f\xbb\xec":
+    if reply[0] == 0x2F and reply[2] == 0xEC:  # tag is bb (answers) or cc (reply to e8)
         ln = int.from_bytes(reply[4:6], "big")
         print(f"  = device frame: cmd={reply[3]:02x} len={ln} payload={reply[6:6 + ln].hex() or '-'}")
 

@@ -22,7 +22,7 @@ import struct
 import subprocess
 import sys
 
-MAGIC = {b"\x2e\xaa\xec": "OUT", b"\x2f\xbb\xec": "IN "}
+MAGIC = {b"\x2e\xaa\xec": "OUT", b"\x2f\xbb\xec": "IN ", b"\x2f\xcc\xec": "IN "}  # cc = reply to e8
 
 USAGE_PAGES = {0x01: "Generic Desktop", 0x0C: "Consumer"}
 MAIN_ITEMS = {0x8: "Input", 0x9: "Output", 0xB: "Feature", 0xA: "Collection", 0xC: "End Collection"}
@@ -154,7 +154,7 @@ def main():
 
     print(f"frames: {len(frames)}  devices: {sorted({f[2] for f in frames})}")
     print("direction:", collections.Counter(MAGIC[f[3][:3]] for f in frames))
-    if not any(f[3][:3] == b"\x2f\xbb\xec" for f in frames):
+    if not any(f[3][0] == 0x2F for f in frames):
         print("WARNING: no device->host (IN) frames; the capture may have been "
               "filtered to host->device URBs only.")
     print("frame lengths:", collections.Counter(len(f[3]) for f in frames))

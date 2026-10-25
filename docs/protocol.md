@@ -159,16 +159,20 @@ frame is the following 63 bytes:
     Report ID | tag  ec | cmd | len (2, BE) | payload | checksum | zero padding to 64
     2e / 2f     aa/bb
 
-- tag byte: `aa` host->device, `bb` device->host; second byte always `ec`
-  (confirmed values, meaning guessed).
+- tag byte: `aa` host->device, `bb` device->host, and `cc` device->host for
+  the reply to `e8` (set text) only; second byte always `ec` (confirmed values,
+  meaning guessed). CORRECTION: the first version of this document and of
+  `analyze_capture.py` knew only `bb`, so the four `cc` replies were dropped
+  and "no reply to e8" was wrongly reported. Fixed after stage B.
 - checksum = sum of the tag byte through the last payload byte, mod 256; the
   Report ID is not included (confirmed, same data as before, restated).
 - With hidapi the write buffer is the full 64 bytes including the Report ID in
   byte 0; the 0xFF14 collection on interface 4 is the one to open (guessed
   mapping of usage page to hidapi device path; to be checked at send time).
-- Self-check: all 110 frames in captures 01-06 (both directions, addresses 9
+- Self-check: all 127 frames in captures 01-09 (both directions, addresses 9
   and 11) were rebuilt from (Report ID, tag, cmd, payload) and are byte-exact
-  identical, including the zero padding (confirmed).
+  identical, including the zero padding (confirmed; the count was 123/110
+  before the four `cc` replies were found).
 
 ### Text (captures 02, 03, 04) - confirmed for ASCII
 
@@ -185,8 +189,11 @@ three captures besides the already known `e7`, `77`, `6a`, `ee`.
 - Encoding: single bytes `41 42 43`, so NOT UTF-16 (confirmed). RESOLVED in
   capture 07: the encoding is UTF-8 and the count is a BYTE count (below).
 - Maximum text length: unknown.
-- No IN reply to `e8` was seen (confirmed in these captures); the app confirms
-  with `e7` (below). The first `00` byte is unknown (index/slot? guessed).
+- The device answers every `e8` about 2 ms later with `2f cc ec e8 00 01 01 a2`
+  (cmd `e8`, 1 byte payload `01`, checksum `a2`), identical for A, AB, ABC and
+  你好 (confirmed, 4 of 4); `01` is probably "accepted" (guessed). The app also
+  reads the text back with `e7` (below). The first `00` byte of the `e8`
+  payload is unknown (index/slot? guessed).
 - Read back, cmd `e7` with payload `00`: reply `00 10 32 <count> <text>` (e.g.
   `00 10 32 03 41 42 43`). The app sends it twice after each `e8`. The bytes
   `10 32` are unknown (maybe limits, guessed). In capture 01 the same reply was
@@ -307,7 +314,7 @@ Reply layout `00 | C1 C2 C3 | 00 | S5 | 00 | S7 | ff 01 00 00` (offsets 1-3 and 
 
 ### Is there any bitmap / pixel command? - not so far
 
-Across all 9 captures (123 frames) there are 19 distinct command bytes:
+Across all 9 captures (127 frames) there are 19 distinct command bytes:
 `65 66 68 6a 77 84 86 87 c6 c8 c9 d5 d7 d8 e7 e8 ee ef f0`. The longest
 payload is 44 bytes (`6a` reply) and no transfer spans several frames. No
 command carries what looks like pixel data: `6a` is a fixed config-like table
@@ -320,14 +327,30 @@ image would need many frames or the other vendor HID channel (usage page
 ### Can the text module be written?
 
 Yes, dry-run only first (project rule: nothing is sent until a `--dry-run`
-frame equals the captured bytes). The frame builder reproduces all 123
+frame equals the captured bytes). The frame builder reproduces all 127
 captured frames byte-exact, including padding. The text frame is fully
 described for UTF-8 text with the leading `00`, the colour frame for RGB
 with the leading `03`. Open before real sending: meaning of the `00` and `03`
-bytes (use the captured values), the maximum text length, whether anything
+bytes (use the captured values), the maximum text length, and whether anything
 else is required for the text to be shown in a given colour (not seen:
-`e8` and `ef` were captured separately), and which hidapi path maps to the
-0xFF14 collection.
+`e8` and `ef` were captured separately). The hidapi path for 0xFF14 is solved
+(see stage B below).
+
+## Stage B: replay of the captured "A" frame (2026-10-25)
+
+`python tools/replay_frame.py --send --yes-i-closed-tempohub` wrote exactly
+one frame, the unmodified `e8` "A" frame from capture 02 (64 bytes, verified
+identical to the capture and to the frame builder before sending), with
+TempoHub fully closed. No other command was sent.
+
+- Device path: found with hidapi by `usage_page == 0xFF14` (VID 2D99, PID
+  A106): `...MI_04&Col02...`, interface 4, second collection. No hardcoded
+  path (confirmed).
+- `write()` accepted all 64 bytes (confirmed).
+- One read (2 s limit) returned the device reply at once:
+  `2f cc ec e8 00 01 01 a2` + zero padding. This is byte-for-byte the reply
+  TempoHub received for the same frame in capture 02 (confirmed).
+- Screen result: recorded by the user, see below / the next commit.
 
 ## Earlier notes from another session (merged)
 
