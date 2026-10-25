@@ -72,6 +72,12 @@ Workflow and status:
      (user-confirmed). Only capture 20 can be replayed; no unknown field was
      changed. Stage 3 (changing pixels) is NOT started: see "Open questions
      before stage 3" in docs/protocol.md; needs the user's approval first.
+   Upload stage 3 (changing pixels) STARTED 2026-10-25: upload 1 of 5 done with
+     tools/upload_pixel.py (pixel x=128, y=4 on in capture 20's scene): all
+     replies matched; the screen showed the text plus a dot in the upper
+     middle (user-confirmed). The scene now shows the dotted version until
+     TempoHub re-uploads it (restore not tried). Budget file
+     ~/.pixelbar/stage3_uploads.txt = 1. Each further upload needs the user's OK.
    Characters: only send text from the tested allow-list (see "Design
      principles for the sending CLI" in docs/protocol.md).
    D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar

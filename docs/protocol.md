@@ -1005,6 +1005,59 @@ second upload of the same data); this was not exercised after this test.
   or the earlier `ef` colour setting) or in a fixed colour: not known.
 - A limit on the number of uploads, because it may write flash (see Unknowns).
 
+## Stage 3: one changed pixel (confirmed by this live test, 2026-10-25)
+
+Tool: `python tools/upload_pixel.py --send --yes-i-closed-tempohub` (capture
+20's scene, one pixel switched on, at most 5 uploads in total; this was upload
+1 of 5). TempoHub fully closed (process count 0 before each send); before the
+upload the screen showed `Hello` in the greyish blue, which the user confirmed
+(`是，是，繼續`).
+
+What was sent: capture 20's 25 frames with ONE pixel changed: pixel (x=128,
+y=4) of the 256x32 image = image byte 128 (page 0, column 128), bit 4, value
+`0x10`; the byte went from `00` to `10`. The dry run showed that exactly one
+OUT frame differed from capture 20: step 4 (data seq 2), at two byte offsets,
+48 (the image byte, `00` to `10`) and 60 (that frame's own checksum, `ee` to
+`fe`, which follows from the first); the other 24 frames were byte-identical.
+All unknown fields kept the captured values (`T` = `02`, `XX XX` = `0064`, `ef`
+frame `01 33 66 99 00 01 02 21 ff`). The expected replies were those of capture
+20.
+
+Device side (confirmed): 25/25 frames written; all 24 expected replies matched
+exactly (the `ef` echo, ready `00 01 00 32`, acknowledgements `00 03 <seq>` for
+seq 0-20, end `00 05`); no unsolicited frame, no timeout, no retry; 1.47 s. The
+frame with the changed byte (seq 2) was acknowledged like in capture 20
+(`00 03 00 02`).
+
+What the user saw, as typed: `1是2有，對，中間偏上，跟文字一樣3沒有4沒有`. In the
+order of my four questions: (1) is 兼职成年人 shown: yes; (2) is there a dot
+above the text, and is the position right: yes, correct, in the upper middle,
+"same as the text" (the user's words, in answer to my question about its size
+and brightness); (3) did the text itself change: no; (4) anything else odd:
+no.
+
+Result: after uploading capture 20's scene with one bit of the image data
+changed, the screen showed 兼职成年人 with an additional lit dot in the upper
+middle above the text. Confirmed by this test:
+
+- The speaker accepted image data that differs from the captured data, with
+  the record header `XX XX` and all other unknown fields unchanged, and
+  displayed it. It did not refuse the upload and no field had to be
+  recalculated for this change. (This does not prove that the speaker never
+  validates the data; it shows that this change was not refused.)
+- Image byte 128, bit 4 produced a dot in the middle (column 128 of 256) and
+  near the top, as the layout "256 columns, vertical bytes, least significant
+  bit on top" predicts for (128, 4). The user could only say "upper middle", so
+  the exact row and column were not read from the screen, and "bit 4 means row
+  4 from the top" (rather than row 3 with the most significant bit on top) is
+  not separated from the alternative by this one observation.
+
+Not shown: that all 256 columns and 32 rows are visible, that the edges are not
+cut, where exactly the dot sits, whether the change survives a power cycle,
+whether TempoHub restores the original scene (not tried yet: the scene now
+shows the version with the dot until TempoHub uploads it again), and whether
+the upload writes flash.
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The
