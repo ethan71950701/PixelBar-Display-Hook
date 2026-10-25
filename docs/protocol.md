@@ -374,8 +374,13 @@ wrote one frame built by `pixelbar.frames.text_frame("AB")`:
   frame `2e aa ec e8 00 05 00 03 41 42 43 4c`, same reply
   `2f cc ec e8 00 01 01 a2`; the user reported the screen changed from `AB`
   to `ABC` (user observation). Confirmed for this frame.
-- Not yet sent from our code: `你好`, any colour (`ef`). Those need separate
-  approval.
+- Then `--frame NIHAO` (`你好`, the first non-ASCII frame, built by our code,
+  verified identical to capture 07 and with count byte 6 == UTF-8 byte
+  length 6): frame `2e aa ec e8 00 08 00 06 e4 bd a0 e5 a5 bd 14`, same reply
+  `2f cc ec e8 00 01 01 a2`; the user reported the screen changed from `ABC`
+  to `你好` (user observation). Confirmed: UTF-8 text with a byte count is
+  accepted and rendered by the device's own font.
+- Not yet sent from our code: any colour (`ef`). Needs separate approval.
 
 ## Earlier notes from another session (merged)
 
