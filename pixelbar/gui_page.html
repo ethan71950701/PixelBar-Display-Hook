@@ -61,6 +61,27 @@
     <div id="drop">把圖片拖到這裡<br><button id="addBtn" type="button">或選擇檔案…</button>
       <input id="file" type="file" accept="image/*" multiple hidden></div>
     <div id="list"><div class="empty">還沒有圖片</div></div>
+
+    <h2 style="margin-top:18px">從影片取圖</h2>
+    <button id="addVideoBtn" type="button">選擇影片…</button>
+    <input id="vfile" type="file" accept="video/*,.mp4,.mkv,.webm,.mov,.avi" hidden>
+    <div id="vstatus" class="muted" style="margin-top:6px"></div>
+    <div id="videoBox" hidden>
+      <video id="vplayer" controls muted preload="metadata" style="width:100%;margin-top:8px;border-radius:6px;background:#000"></video>
+      <div class="muted" id="vinfo"></div>
+      <label>開始時間（秒）</label>
+      <div class="row"><input id="vstart" type="number" min="0" step="0.1" value="0" style="width:90px"><button id="vnow" class="small" type="button">用目前播放位置</button></div>
+      <label>每秒取幾張（取樣 fps）</label>
+      <input id="vfps" type="number" min="0.05" max="60" step="0.05" value="1" style="width:90px">
+      <label>共取幾張（最多 20）</label>
+      <input id="vcount" type="number" min="1" max="20" step="1" value="20" style="width:90px">
+      <label>畫面處理</label>
+      <select id="vfit"><option value="contain">整張縮小置中（兩側留黑）</option><option value="crop">裁切</option><option value="stretch">拉伸壓扁</option></select>
+      <div class="check"><input id="vreplace" type="checkbox" checked><label for="vreplace" style="margin:0;color:var(--ink)">取代清單裡現有的圖片</label></div>
+      <div class="muted" id="vsummary"></div>
+      <button id="vextract" class="primary" type="button" style="margin-top:8px">取出畫面加入清單</button>
+      <div class="muted" style="margin-top:6px">這裡的 fps 是從影片裡取樣的頻率（例如 1 = 每秒取一張）。音箱播放的速度由音箱決定，目前沒辦法調整。</div>
+    </div>
   </section>
 
   <section id="mid">
@@ -298,7 +319,7 @@ $("play").onclick = () => {
 };
 
 // ---- plan (checks) and sending
-function schedulePlan() { clearTimeout(planTimer); planTimer = setTimeout(plan, 250); }
+function schedulePlan() { if (typeof videoSummary === "function") videoSummary(); clearTimeout(planTimer); planTimer = setTimeout(plan, 250); }
 async function plan() {
   const seq = ++planSeq, box = $("planBox"), btn = $("send");
   if (!items.length || items.some(i => !i.png)) { lastPlan = null; btn.disabled = true; $("checks").textContent = "";
@@ -350,6 +371,60 @@ $("sendColor").onclick = () => {
   });
 };
 window.addEventListener("resize", drawCrop);
+
+// ---- pictures out of a video
+let video = null, videoUrl = null;
+const num = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
+$("addVideoBtn").onclick = () => $("vfile").click();
+$("vfile").onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (f) await openVideo(f); };
+async function openVideo(f) {
+  const st = $("vstatus"); st.className = "muted"; st.textContent = "把影片交給本機程式中…（大檔案要等一下）";
+  try {
+    const info = await api("/api/video", null, f, "?name=" + encodeURIComponent(f.name.replace(/\.[^.]+$/, "")));
+    video = info;
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    videoUrl = URL.createObjectURL(f); $("vplayer").src = videoUrl;
+    $("videoBox").hidden = false; st.textContent = "";
+    $("vinfo").textContent = `${info.name} · ${info.width}×${info.height} · ${info.duration ? info.duration.toFixed(1) + " 秒" : "長度不明"}` + (info.fps ? ` · 原片 ${info.fps.toFixed(0)} fps` : "");
+    $("vstart").value = 0; if (info.duration) $("vstart").max = info.duration.toFixed(1);
+    videoSummary();
+  } catch (e) { st.className = "bad"; st.textContent = e.message; }
+}
+$("vnow").onclick = () => { $("vstart").value = $("vplayer").currentTime.toFixed(1); videoSummary(); };
+["vstart", "vfps", "vcount", "vreplace"].forEach(id => $(id).addEventListener("input", videoSummary));
+function videoCount() {
+  const want = Math.max(1, Math.min(MAX_SLIDES, Math.floor(num("vcount", 1)))), room = MAX_SLIDES - ($("vreplace").checked ? 0 : items.length);
+  return Math.min(want, room);
+}
+function videoSummary() {
+  if (!video) return;
+  const start = Math.max(0, num("vstart", 0)), fps = num("vfps", 1), n = videoCount();
+  if (n < 1) { $("vsummary").textContent = "清單已滿 20 張：勾選「取代」或先移除一些。"; return; }
+  const end = start + (n - 1) / fps, over = video.duration && end > video.duration;
+  $("vsummary").innerHTML = `會取 ${n} 張：第 ${start.toFixed(1)} 秒到第 ${end.toFixed(1)} 秒，每隔 ${(1 / fps).toFixed(2)} 秒一張` +
+    (over ? `<span class="warn">（超過影片長度，只會取到影片結尾）</span>` : "");
+}
+$("vextract").onclick = async () => {
+  if (!video) return;
+  const st = $("vstatus"), btn = $("vextract"); const n = videoCount();
+  if (n < 1) { videoSummary(); return; }
+  btn.disabled = true; st.className = "muted"; st.textContent = "取出畫面中…";
+  try {
+    const res = await api("/api/video/frames", {start: Math.max(0, num("vstart", 0)), fps: num("vfps", 1), count: n});
+    if ($("vreplace").checked) { for (const it of items.splice(0)) api("/api/remove", {id: it.id}).catch(() => {}); selected = null; }
+    const added = [];
+    for (const f of res.frames) {
+      const img = new Image(); img.src = f.url; await img.decode().catch(() => {});
+      const it = {id: f.id, name: f.name, w: f.width, h: f.height, url: f.url, img, fit: $("vfit").value, zoom: 1, cx: .5, cy: .5, png: null, lit: 0};
+      items.push(it); added.push(it);
+    }
+    selected = added[0]; renderList(); showSelected();
+    st.textContent = `已加入 ${added.length} 張` + (added.length < res.wanted ? `（影片不夠長，只取到 ${added.length} 張）` : "") + "，轉換中…";
+    for (const it of added) await renderOne(it);
+    st.textContent = `已加入 ${added.length} 張` + (added.length < res.wanted ? `（影片不夠長，只取到 ${added.length} 張）` : "");
+  } catch (e) { st.className = "bad"; st.textContent = e.message; }
+  btn.disabled = false; videoSummary();
+};
 </script>
 </body>
 </html>

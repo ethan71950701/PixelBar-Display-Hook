@@ -12,25 +12,29 @@ until you press the upload button and confirm; the server then re-checks everyth
 (TempoHub not running, limits, the hash of the bitmap you looked at) and runs the same
 single bounded upload as the command line (image_send.send_upload): no retry, no loop.
 
-The pictures stay in memory only; nothing is written to disk.
+The pictures stay in memory only. A video you open is copied to a temporary folder (deleted when
+you open another video or close the program) so that pictures can be taken out of it.
 """
 import base64
 import contextlib
 import hmac
+import io
 import json
-import math
 import os
 import secrets
+import shutil
 import subprocess
+import tempfile
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import device, frames, image, image_send, limits, prepare, upload, upload_replay
+from . import device, frames, image, image_send, limits, prepare, upload, upload_replay, video
 
 PAGE = os.path.join(os.path.dirname(__file__), "gui_page.html")
 MAX_PICTURE_BYTES = 30 * 1024 * 1024
+MAX_VIDEO_BYTES = 1024 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024
 MAX_STORED = 60                 # pictures kept in memory
 MAX_SLIDES = 20                 # one upload (the most tried on the speaker)
@@ -113,6 +117,7 @@ class Workspace:
     def __init__(self, open_device=device.open_device, send_frame=device.send_frame, is_tempohub_running=tempohub_running,
                  state_dir=None):
         self.pictures = {}
+        self.video = None            # {"dir", "path", "name", "info"}: the video opened last (a temporary copy)
         self.lock = threading.Lock()
         self.send_lock = threading.Lock()
         self.open_device, self.send_frame, self.is_tempohub_running, self.state_dir = open_device, send_frame, is_tempohub_running, state_dir
@@ -133,6 +138,64 @@ class Workspace:
         with self.lock:
             self.pictures[pid] = oriented
         return {"id": pid, "name": name, "width": oriented.width, "height": oriented.height}
+
+    def add_video(self, rfile, length, name):
+        """Copy the request body to a temporary file (never more than `length` bytes), check it is a video, keep it."""
+        folder = tempfile.mkdtemp(prefix="pixelbar_video_")
+        path = os.path.join(folder, "video.bin")
+        try:
+            with open(path, "wb") as out:
+                left = length
+                while left > 0:
+                    chunk = rfile.read(min(1024 * 1024, left))
+                    if not chunk:
+                        raise GuiError("the upload ended early")
+                    out.write(chunk)
+                    left -= len(chunk)
+            info = video.probe(path)
+        except (video.VideoError, GuiError) as err:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise GuiError(str(err)) from None
+        except BaseException:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
+        self.drop_video()
+        self.video = {"dir": folder, "path": path, "name": name, "info": info}
+        return {"name": name, **info}
+
+    def drop_video(self):
+        old, self.video = self.video, None
+        if old:
+            shutil.rmtree(old["dir"], ignore_errors=True)
+
+    def close(self):
+        self.drop_video()
+
+    def video_frames(self, body):
+        if self.video is None:
+            raise GuiError("open a video first")
+        info = self.video["info"]
+        start, fps, count = body.get("start", 0), body.get("fps"), body.get("count")
+        try:
+            video.check_request(start, fps, count, info["duration"])
+        except video.VideoError as err:
+            raise GuiError(str(err)) from None
+        if len(self.pictures) + count > MAX_STORED:
+            raise GuiError(f"at most {MAX_STORED} pictures at a time; remove some first")
+        try:
+            taken = video.extract(self.video["path"], float(start), float(fps), count)
+        except video.VideoError as err:
+            raise GuiError(str(err)) from None
+        out = []
+        for t, img in taken:
+            jpeg = io.BytesIO()
+            img.save(jpeg, "JPEG", quality=88)
+            pid = secrets.token_hex(6)
+            with self.lock:
+                self.pictures[pid] = img.convert("RGBA")
+            out.append({"id": pid, "name": f"{self.video['name']} {t:.2f}s", "time": t, "width": img.width, "height": img.height,
+                        "url": "data:image/jpeg;base64," + base64.b64encode(jpeg.getvalue()).decode("ascii")})
+        return {"frames": out, "wanted": count}
 
     def remove(self, pid):
         with self.lock:
@@ -269,12 +332,15 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             return self._reply(400, {"error": "bad length"})
-        limit = MAX_PICTURE_BYTES if url.path == "/api/add" else MAX_JSON_BYTES
+        limit = {"/api/add": MAX_PICTURE_BYTES, "/api/video": MAX_VIDEO_BYTES}.get(url.path, MAX_JSON_BYTES)
         if not 0 <= length <= limit:
             return self._reply(413, {"error": f"too large (at most {limit // (1024 * 1024) or 1} MB)"})
-        raw = self.rfile.read(length)
         ws = self.server.workspace
         try:
+            if url.path == "/api/video":
+                name = parse_qs(url.query).get("name", ["video"])[0][:80]
+                return self._reply(200, ws.add_video(self.rfile, length, name))
+            raw = self.rfile.read(length)
             if url.path == "/api/add":
                 name = parse_qs(url.query).get("name", ["picture"])[0][:80]
                 return self._reply(200, ws.add(raw, name))
@@ -284,7 +350,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise GuiError("the request is not valid JSON") from None
             if not isinstance(body, dict):
                 raise GuiError("the request is not valid")
-            routes = {"/api/render": ws.render, "/api/plan": ws.plan, "/api/send": ws.send, "/api/color": ws.color}
+            routes = {"/api/render": ws.render, "/api/plan": ws.plan, "/api/send": ws.send, "/api/color": ws.color,
+                      "/api/video/frames": ws.video_frames}
             if url.path == "/api/remove":
                 ws.remove(str(body.get("id", "")))
                 return self._reply(200, {"ok": True})
@@ -293,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(200, routes[url.path](body))
         except GuiError as err:
             return self._reply(400, {"error": str(err)})
-        except prepare.PrepareError as err:
+        except (prepare.PrepareError, video.VideoError) as err:
             return self._reply(400, {"error": str(err)})
 
 
@@ -304,6 +371,10 @@ class GuiServer(ThreadingHTTPServer):
         super().__init__(("127.0.0.1", port), Handler)
         self.workspace = workspace
         self.token = secrets.token_urlsafe(24)
+
+    def server_close(self):
+        super().server_close()
+        self.workspace.close()
 
     @property
     def url(self):

@@ -281,5 +281,100 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/color", {"rgb": "336699", "confirm": True})[0], 400)
 
 
+try:
+    import av
+except ImportError:        # videos are optional
+    av = None
+
+
+def make_video(path, seconds=4, fps=10, size=(64, 48)):
+    """A small mpeg4 video whose brightness grows with time: frame i has grey level 10 + 5 * i."""
+    with av.open(path, "w", format="mp4") as container:
+        stream = container.add_stream("mpeg4", rate=fps)
+        stream.width, stream.height, stream.pix_fmt = size[0], size[1], "yuv420p"
+        for i in range(seconds * fps):
+            grey = min(255, 10 + 5 * i)
+            img = Image.new("RGB", size, (grey, grey, grey))
+            for packet in stream.encode(av.VideoFrame.from_image(img)):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+
+
+@unittest.skipIf(av is None, "PyAV is not installed")
+class VideoTests(unittest.TestCase):
+    open_device, send_frame, request, add, body = (ServerTests.open_device, ServerTests.send_frame, ServerTests.request,
+                                                   ServerTests.add, ServerTests.body)
+
+    def setUp(self):
+        ServerTests.setUp(self)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = f"{self.tmp.name}/clip.mp4"
+        make_video(self.path)
+        with open(self.path, "rb") as fh:
+            self.data = fh.read()
+
+    def open_video(self):
+        status, info = self.request("POST", "/api/video?name=clip", raw=self.data)
+        self.assertEqual(status, 200, info)
+        return info
+
+    def grey_of(self, url):
+        _, b64 = url.split(",", 1)
+        import base64
+        img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("L")
+        return img.getpixel((img.width // 2, img.height // 2))
+
+    def test_probe_and_extract_follow_start_fps_and_count(self):
+        info = self.open_video()
+        self.assertEqual((info["width"], info["height"], info["name"]), (64, 48, "clip"))
+        self.assertAlmostEqual(info["duration"], 4.0, delta=.3)
+        status, res = self.request("POST", "/api/video/frames", {"start": 0.5, "fps": 2, "count": 4})
+        self.assertEqual(status, 200, res)
+        times = [f["time"] for f in res["frames"]]
+        self.assertEqual(len(times), 4)
+        for k, t in enumerate(times):
+            self.assertAlmostEqual(t, 0.5 + k / 2, delta=.15)
+        greys = [self.grey_of(f["url"]) for f in res["frames"]]
+        self.assertEqual(greys, sorted(greys))
+        self.assertLess(greys[0], greys[-1])
+        self.assertEqual(len(self.ws.pictures), 4)                          # the pictures are stored for cropping and planning
+        status, plan = self.request("POST", "/api/plan", self.body([f["id"] for f in res["frames"]]))
+        self.assertEqual((status, plan["pictures"], plan["frames"]), (200, 4, 4 * 8 * 133 // 50 + 3 + (1 if 4 * 8 * 133 % 50 else 0)))
+        self.assertEqual(self.opened, [])
+
+    def test_a_short_video_returns_fewer_pictures(self):
+        self.open_video()
+        status, res = self.request("POST", "/api/video/frames", {"start": 3.0, "fps": 2, "count": 20})
+        self.assertEqual(status, 200, res)
+        self.assertTrue(1 <= len(res["frames"]) < 20)
+        self.assertEqual(res["wanted"], 20)
+
+    def test_bad_requests_are_refused(self):
+        self.assertEqual(self.request("POST", "/api/video/frames", {"start": 0, "fps": 1, "count": 2})[0], 400)    # no video yet
+        self.open_video()
+        for bad in ({"start": -1, "fps": 1, "count": 2}, {"start": 0, "fps": 0, "count": 2}, {"start": 0, "fps": 100, "count": 2},
+                    {"start": 0, "fps": 1, "count": 0}, {"start": 0, "fps": 1, "count": 21}, {"start": 0, "fps": 1, "count": 1.5},
+                    {"start": 99, "fps": 1, "count": 2}, {"start": "0", "fps": 1, "count": 2}):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.request("POST", "/api/video/frames", bad)[0], 400)
+        status, err = self.request("POST", "/api/video?name=x", raw=b"this is not a video")
+        self.assertEqual(status, 400)
+        self.assertIn("cannot read the video", err["error"])
+
+    def test_the_temporary_copy_is_deleted_when_replaced_and_on_close(self):
+        import os
+        self.open_video()
+        first = self.ws.video["dir"]
+        self.assertTrue(os.path.isdir(first))
+        self.open_video()
+        self.assertFalse(os.path.isdir(first))
+        second = self.ws.video["dir"]
+        self.ws.close()
+        self.assertFalse(os.path.isdir(second))
+        self.assertIsNone(self.ws.video)
+
+
 if __name__ == "__main__":
     unittest.main()
