@@ -1102,16 +1102,22 @@ tool refuses to run without `--dry-run`):
 
 ### Planned test image: what each observation would tell (a plan, not a result)
 
-The pattern: a 1-pixel white frame on the outer ring (columns 0 and 255, rows
-0 and 31), a letter F at the top left, `TEST 123` in the centre. None of this
-has been uploaded yet.
+The pattern is the one written by `tools/make_test_image.py OUT.png` (added by
+another session; standard library only; keep OUT.png outside the repository): a
+1-pixel white frame on the outer ring (columns 0 and 255, rows 0 and 31), a
+letter F at the top left (columns 6-15, rows 4-17, twice the size of a 5x7
+font), `TEST 123` in the centre (columns 81-174, rows 9-22), and a 3x3 block
+near the bottom right (columns 249-251, rows 26-28). None of this has been
+uploaded yet. (The temporary pattern used for the dry-run demonstration above
+was a similar one made for that purpose; it is not this file's output.)
 
 | Observation | What it can decide |
 |---|---|
 | All four sides of the frame visible and unbroken | the whole 256x32 area is displayed; a missing side means at least that outer column or row is not visible (cut or hidden); a gap in a line points to a seam or a missing column or row in the panel mapping |
 | The F at the top left, upright and readable | no mirroring, flipping or rotation: columns run left to right, rows top to bottom, and the origin (0, 0) is the top left. The F spans rows 3-16, across the 8-row page boundary, so a wrong bit order within a byte (msb-top) would show the F cut into bands with the halves swapped; this separates `lsb-top` from `msb-top`, which one pixel could not |
 | F mirrored, upside down, or at another corner | mirrored: the column order is reversed; upside down or banded: bit order or page order is wrong; at another corner or rotated: the mapping of pages and columns is transposed |
-| The 3 dark columns left of the F and the 2 dark rows above it, between the F and the frame | the first columns and rows are displayed at the right positions (no offset of the image against the panel) |
+| The 5 dark columns (1-5) left of the F and the 3 dark rows (1-3) above it, between the F and the frame | the first columns and rows are displayed at the right positions (no offset of the image against the panel) |
+| The 3x3 block near the bottom right (columns 249-251, rows 26-28), 3 dark columns (252-254) and 2 dark rows (29-30) from the frame | the bottom-right area is displayed (the last columns and rows); with the F at the top left it also separates a left-right mirror from a top-bottom flip: a mirror moves the block to the bottom left, a flip to the top right |
 | `TEST 123`: strokes crossing the page boundary at row 16 are continuous | the page order and the bit order are right in the middle of the image too; the digits `1`, `2`, `3` and the `S` cannot be read the same when mirrored |
 | `TEST 123` equally far from the left and right frame (81 columns each side) and from the top and bottom (9 rows each) | column 128 and row 16 are the centre of what is shown (to the precision of the eye) |
 | Strokes two pixels thick stay two pixels thick | no scaling or blurring; pixels are square and uniform |
