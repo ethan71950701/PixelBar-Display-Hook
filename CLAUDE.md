@@ -57,6 +57,11 @@ Workflow and status:
    Power-cycle test DONE 2026-10-25: text PWRTEST1 stayed after the speaker was
      unplugged >= 10 s (user report). Flash wear per write is still unknown:
      any Display Hook must send only on change and rate-limit (see Unknowns).
+   Scene uploads analysed (captures 20-25, read-only): cmd 0x17 uploads raw
+     1-bit 256x32 images (page layout, LSB on top) in 50-byte chunks with
+     per-chunk acks; clock/spectrum scenes upload nothing; no checksum or
+     encryption seen beyond the frame checksum. NOT in the CLI; nothing sent.
+     See "Scene uploads" in docs/protocol.md and tools/analyze_upload.py.
    D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar
      text "..." [--color RRGGBB] | color RRGGBB`; default is a dry run, --send
      writes after asking "TempoHub closed?" (or --yes-i-closed-tempohub),

@@ -681,11 +681,19 @@ OUT = host to speaker, IN = speaker to host.
 | `ef` | 11 | 11 | 4 or 9 | 9 | 11/11 | 0 | 05, 08, 09, 10-17 | 4-byte `03 R G B` sets the text colour; 9-byte `sel R G B 00 02 major sub ff` sets main mode (`sel` 02) or sub-option (`sel` 01) | confirmed (see "Captures 10-17") |
 | `f0` | 1 | 1 | 1 | 3 | 1/1 | 0 | 01 | OUT `1a`, reply `1a ff 01` | unknown |
 
+The table covers captures 01-17. Command `17` (scene upload) first appears in
+captures 20-23 and is described in "Scene uploads".
+
 Report tags: OUT frames carry `aa`; IN frames carry `bb`, except the reply to
 `e8`, which carries `cc` (four frames). All frames in the table checksum
 correctly (sum of the tag byte through the last payload byte, mod 256).
 
 ## Bitmap / bulk-data evidence check (all 17 captures)
+
+UPDATE (captures 20-25, see "Scene uploads"): this check covered captures
+01-17 only. The later captures 20-23 DO contain a bitmap upload (command
+`0x17`, 1-bit 256x32 images on the 0xFF14 channel). The conclusion below was
+right for 01-17 and is superseded for the whole set.
 
 Question: does any command, frame or channel in the existing captures look
 able to carry a bitmap or other large data?
@@ -712,6 +720,164 @@ and what each check found:
 - No image upload was captured, so the captures contain no example of an
   image being sent. The absence of evidence is about these captures only; it
   does not mean the speaker cannot show images.
+
+## Scene uploads: captures 20-25 (read-only analysis, 2026-10-25)
+
+TempoHub's "个性场景" (personal scenes) screen. The user clicked one scene per
+capture, waited for the progress bar to finish plus 5 seconds, and said the bar
+runs 5-10 seconds. The placeholder for the bar duration in their message was
+left unfilled, so the bar durations are not recorded; only the USB timing below
+was measured. Speaker at USB address 13. Nothing was sent to the device by us;
+the full analysis is reproducible with `tools/analyze_upload.py` (the PNG
+images it can write are not in the repository).
+
+### Per capture
+
+| File | Scene (user's label) | Frames (OUT / IN) | Bytes on the wire | USB upload time | `17` upload | Data |
+|---|---|---|---|---|---|---|
+| 20 | work, "兼职成年人" (plain text) | 25 / 24 | 3136 | 1.42 s | 1064 B, 22 chunks | 1 image |
+| 21 | study, "上岸" (cat + laptop) | 46 / 45 | 5824 | 2.63 s | 2128 B, 43 chunks | 2 images |
+| 22 | same "上岸" again | 46 / 45 | 5824 | 2.60 s | 2128 B, 43 chunks | 2 images, identical to 21 |
+| 23 | cat, left column 3rd (row of paws) | 25 / 24 | 3136 | 1.32 s | 1064 B, 22 chunks | 1 image |
+| 24 | clock, left column 1st | 1 / 1 | 128 | none | no `17` frame | - |
+| 25 | spectrum, 1st | 1 / 2 | 192 | none | no `17` frame | - |
+
+Every frame is a 64-byte report on the 0xFF14 channel (Report ID 0x2E / 0x2F);
+no frame with Report ID 0x06 or 0x07 (0xFF13) in any of the six (confirmed).
+"Bytes on the wire" = 64 bytes x frames. Commands used: `ef` (scene select) and
+`17` (upload) only. Upload time = start frame to the final acknowledgement.
+
+### Command `17` upload protocol (confirmed unless noted)
+
+| Step | Host to speaker (OUT) | Speaker to host (IN) |
+|---|---|---|
+| start | `17`, payload `00 00` + 4-byte big-endian total size (`00 00 04 28` = 1064, `00 00 08 50` = 2128) | `00 01 00 32`: ready; `00 32` = 50 = data bytes per chunk |
+| data | `17`, payload `00 02` + 2-byte sequence number (0, 1, 2, ...) + up to 50 data bytes | `00 03` + the same sequence number, for every chunk except the last one |
+| end | `17`, payload `00 04` | `00 05` |
+
+- Checked in all four uploads: the declared total equals the reassembled
+  length; sequence numbers are contiguous from 0; every chunk but the last is
+  acknowledged with its own number; the end is acknowledged. All chunks are 50
+  bytes except the last (14 bytes for 1064, 28 for 2128).
+- Single-frame payload: at most 54 bytes (`00 02 SSSS` + 50 data bytes); the
+  stop-and-wait is one chunk per acknowledgement, about 50 ms per chunk.
+- The total size counts the 5-byte headers (see below): 1064 = 8 x 133,
+  2128 = 16 x 133.
+- Timing seen: the speaker answered the start frame after 189, 199, 207 and 105
+  ms, and the end frame after 204, 201, 214 and 173 ms (20, 21, 22, 23). That
+  the speaker is busy for about 0.1-0.2 s at start and end could mean
+  preparation or storing; this was not tested (guess).
+- The leading `00 00` of the start payload never changed (meaning unknown).
+- Before each upload TempoHub sent one `ef` frame (below) and the speaker
+  echoed it. The start frame follows about 20 ms later (20, 21, 22) or 0.7 s
+  later (23).
+
+### What is uploaded: raw 1-bit images
+
+The reassembled data is split in records of 133 bytes: a 5-byte header and 128
+bytes of image data.
+
+| | 20 | 21 / 22 | 23 |
+|---|---|---|---|
+| records | 8 | 16 | 8 |
+| header `T 00 NN XX XX` | `02 00 NN 00 64` | `03 00 NN 00 30` | `04 00 NN ff ff` |
+| image data | 1024 B | 2048 B | 1024 B |
+
+- `NN` counts the records 0, 1, 2, ... without gaps (confirmed, all four).
+- `T` is the same in all records of an upload (`02`, `03`, `04`) and equals the
+  seventh byte of the `ef` frame sent just before (below) (confirmed for 20,
+  21, 22, 23). Its meaning is unknown.
+- `XX XX` is the same in all records of an upload: `0064` (20), `0030` (21,
+  22), `ffff` (23). Meaning unknown. It looks like a per-scene value, such as a
+  frame delay (guess, no evidence); nothing suggests a checksum.
+- The data are bitmaps: 1 bit per pixel, 256 columns x 32 rows, 4 pages of 256
+  bytes, one byte = 8 vertical pixels, least significant bit at the top.
+  A 256x32 1-bit image is exactly 1024 bytes; the 21/22 data are exactly two
+  such images. Evidence (confirmed): searching all page widths, the width 256
+  with the least significant bit on top gave the highest stroke continuity
+  across page boundaries in all three uploads (0.63 for 20, 0.37 for 21, 0.52
+  for 23, against 0.04-0.11 for shuffled bytes), and the images rendered with
+  this layout are clearly legible: capture 20 shows the five characters
+  "兼职成年人"; 21 shows "上岸" twice around a cat at a laptop, in two slightly
+  different frames; 23 shows a row of five paws. Rendered PNGs are in
+  `C:\pixelbar-raw\render\` (not in the repository; the script regenerates
+  them). The speaker's physical screen size was not read from the device;
+  256x32 is the size of the uploaded images.
+- Other layouts were not needed: one byte per pixel (RGB332) would be 8192 bytes
+  per 256x32 image and RGB565 16384, but each image is 1024 bytes.
+- Whether the 2-image upload (21) is an animation that the speaker plays is a
+  guess from the two slightly different frames; the capture does not show
+  playback. The `XX XX` value `0030` might be its delay (guess).
+- Not compressed (confirmed by the sizes): 20 (text) and 23 (paws) have
+  different content (72 % and 47 % zero bytes, entropy 2.10 and 3.04 bits per
+  byte) but the same size, 1064 bytes, and the 21/22 size is exactly twice that.
+  Not encrypted: the images are legible as they are sent.
+- Checksum: the only check seen is the frame-level checksum (sum of the tag
+  byte through the last payload byte, mod 256; all frames in all six captures
+  are valid). In the upload there is no field that varies per record and looks
+  like a check value, the blob has no trailer, and the end frame carries none.
+  A check inside the speaker's reply to the end frame is not visible (`00 05`).
+  "No evidence of an extra checksum" is all that can be said.
+
+### Comparisons asked for
+
+- 21 and 22 (the same scene, clicked again after another scene): all 45 `17`
+  frames of 64 bytes each are byte-identical, and so is the `ef` frame
+  (confirmed). So TempoHub uploads the scene again every time it is clicked;
+  the 22 capture holds no other scene's traffic.
+- Data volume: plain text (20) 1064 B; picture with pattern (21) 2128 B because
+  it has 2 images; paws (23) 1064 B; clock (24) and spectrum (25): nothing.
+  The size depends on the number of 256x32 images, not on the content.
+
+### Scene select `ef` frame (confirmed correlation, meaning guessed)
+
+The 9-byte form seen in "Captures 10-17": `sel R G B 00 p5 p6 p7 ff`. In these
+six captures:
+
+| Capture | `ef` payload | `p5` | `p6` | `p7` |
+|---|---|---|---|---|
+| 20 | `01 33 66 99 00 01 02 21 ff` | `01` | `02` | `21` |
+| 21, 22 | `01 33 66 99 00 01 03 09 ff` | `01` | `03` | `09` |
+| 23 | `01 33 66 99 00 01 04 04 ff` | `01` | `04` | `04` |
+| 24 | `01 33 66 99 00 01 00 00 ff` | `01` | `00` | `00` |
+| 25 | `01 33 66 99 00 01 08 00 ff` | `01` | `08` | `00` |
+
+- `p6` equals the record header `T` in the three scenes that were uploaded
+  (confirmed). `p6` and `p7` differ per scene; the speaker echoes the frame.
+- `p5` was `02` in all text-mode frames and is `01` here. Together with the
+  earlier `ee` status (byte 5 was `01` before the first text and `02` after) it
+  looks like a screen-mode number: `02` = text, `01` = scenes (guess, matches
+  all frames seen).
+- `p6` / `p7` as a category and item number are a guess; the mapping to the
+  user's categories (work, study, cat, clock, spectrum) was not established.
+- Clock and spectrum: no upload frame; only the `ef` frame (confirmed). In
+  these captures there is no evidence that their pictures are sent by the
+  host.
+
+### Capture 25: spectrum while music played
+
+- The capture lasts 27.7 s. The `ef` frame is at 4.11 s. USB audio packets with
+  data to the speaker (endpoint 0x03) run from 7.58 s to 21.70 s, 1414 packets,
+  about 14 s.
+- During the whole audio period the host sent no frame on the HID channel, and
+  there was no periodic traffic in either direction (confirmed: the capture
+  holds 3 HID frames in total: the `ef` frame and its echo, and one `66` frame).
+- That `66` frame (payload `10 08`) came from the speaker without a request, 9
+  ms after the first audio packet (7.587 s). Its meaning is unknown; it may
+  simply be a reaction to audio starting (guess).
+- So the host does not stream spectrum data; the speaker gets the music over
+  the USB audio interface only. That the speaker computes the spectrum from that
+  audio itself is a guess (no other source is visible in the captures).
+
+### Answers to the question "is this an image upload?"
+
+- Yes for the scenes 20-23: the host sends 1-bit 256x32 bitmaps (1024 bytes
+  per image) with `17`, in 50-byte chunks, each acknowledged (confirmed).
+- No for the clock and spectrum scenes in these captures: only `ef`.
+- Whether the scene stays on the speaker after the upload is not known (the
+  user's guess that it does was not tested). Whether the upload writes flash is
+  not known either; the data are about 1-2 KB per upload, and TempoHub repeats
+  the whole upload every time a scene is clicked.
 
 ## Unknowns (open questions, 2026-10-25)
 
@@ -807,7 +973,9 @@ The command bytes are now known: see "Captures 10-17". What remains open:
   sub-option are explained in "Captures 10-17").
 - The 44-byte `6a` table and the other device-info replies (`d8`, `65`, `66`,
   `d5`, `68`, `84`, `86`, `d7`, `f0`, `c6`).
-- Images: no image command has been captured at all.
+- Images: scene uploads (`17`) were captured in 20-23, see "Scene uploads". Not
+  known: whether uploads are stored on the device, whether they wear flash,
+  and the meaning of the record header fields.
 - Text and colour in one run (colour then text) was never captured from
   TempoHub; the CLI sends them as two separately verified frames.
 
