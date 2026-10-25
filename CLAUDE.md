@@ -80,6 +80,11 @@ Workflow and status:
      ~/.pixelbar/stage3_uploads.txt = 1. Each further upload needs the user's OK.
      Restored through TempoHub (click another scene, then this one): the dot
      disappeared, text as before (user-confirmed).
+     Upload 2 of 5 DONE 2026-10-25 (tools/send_png.py with the previewed test
+     image, bound by --expect-sha): all replies matched; the screen showed the
+     image as in the picture (frame, F top-left, TEST 123 centred, block
+     bottom-right; user-confirmed). So the layout 256x32, vertical bytes, LSB on
+     top is confirmed on the screen. Budget file = 2. Restore not yet done.
      Prepared (nothing sent): tools/png_upload.py --dry-run converts a 256x32
      PNG (outside the repo) to the bitmap and shows the whole upload and its
      differences from capture 20; there is no send path for converted images.

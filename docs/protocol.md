@@ -1128,6 +1128,68 @@ was a similar one made for that purpose; it is not this file's output.)
 The eye limits these readings; a photo of the screen would make the
 comparison with the preview easier.
 
+## Stage 3, upload 2: the orientation test image (confirmed by this live test, 2026-10-25)
+
+Tool: `python tools/send_png.py C:\pixelbar-raw\test-256x32.png --expect-sha
+037720be605a --send --yes-i-closed-tempohub`; the PNG is the output of
+`tools/make_test_image.py` (kept outside the repository). TempoHub fully closed
+(process count 0 before each send). Upload 2 of 5. Before it, `Hello` in
+colour `336699` was shown with the existing CLI (replies as expected) and the
+user confirmed: `屏幕是 Hello，偏灰蓝` ("the screen is Hello, greyish blue").
+
+What was sent: capture 20's 25 frames with only the image data replaced by the
+1024-byte bitmap of the test image (lit pixels: the 1-pixel outer frame, an F
+at columns 6-15 / rows 4-17, `TEST 123` at columns 81-174 / rows 9-22, a 3x3
+block at columns 249-251 / rows 26-28; bitmap SHA-256 starts `037720be605a1495`,
+the value shown by the preview and bound with `--expect-sha`). 21 of the 25
+frames differed from capture 20, all of them data frames, differing only in
+image bytes and their own checksum; `ef`, start and end frames and all unknown
+fields (`T` = `02`, `XX XX` = `0064`, `ef` frame `01 33 66 99 00 01 02 21 ff`)
+were the captured ones.
+
+Device side (confirmed): 25/25 frames written; all 24 expected replies matched
+exactly; no unsolicited frame, no timeout, no retry; 1.53 s.
+
+What the user saw, as typed (answers in the order of my eight questions):
+`1都可以2是，正的3右下角4清楚，居中，跟圖片一模一樣5看的到6都一樣7是，沒有8是靜止，正常`.
+
+| Question | The user's words | Plain translation |
+|---|---|---|
+| 1. Are all four sides of the white frame visible, any side hidden? | 都可以 | all fine |
+| 2. Is the F at the top left, and upright, mirrored or flipped? | 是，正的 | yes, upright |
+| 3. Where is the small block? | 右下角 | the bottom right corner |
+| 4. Is `TEST 123` clear, centred, strokes unbroken? | 清楚，居中，跟圖片一模一樣 | clear, centred, exactly like the picture |
+| 5. Are the dark gaps between the F and the frame, and the block and the frame, visible? | 看的到 | visible |
+| 6. Are frame, F, text and block the same colour and brightness (and which colour)? | 都一樣 | all the same |
+| 7. Is everything else dark, any `Hello` left over? | 是，沒有 | yes (dark), none left |
+| 8. Is the picture still, any flicker or movement? | 是靜止，正常 | still, normal |
+
+Result: after uploading the test image, the screen showed the image as in the
+picture: the frame, the F at the top left, `TEST 123` in the centre and the
+block at the bottom right. Confirmed by this test (to the precision of the
+eye):
+
+- The layout of the bitmap is right: 256 columns left to right, 32 rows top to
+  bottom, vertical bytes, least significant bit on top. The F spans rows 4-17,
+  across the page boundary at row 8, and is upright; with the most significant
+  bit on top it would be cut into bands with the halves swapped. This also
+  settles the point left open after upload 1 (one dot could not separate
+  `lsb-top` from `msb-top`). No mirror, flip or rotation: the F is at the top
+  left and the block at the bottom right.
+- The whole 256x32 area is shown, including the outer ring (all four sides of
+  the frame), the block near the bottom-right corner and the gaps between
+  those and the frame, so no outer column or row is cut off and the image is
+  not offset.
+- The text is centred; the screen was fully replaced (no `Hello` left over) and
+  the image was still.
+
+Not settled: which colour the image was drawn in (the user's answer to the
+colour question says only that all parts were the same, without naming the
+colour); whether the scene stays after a power cycle; whether the upload writes
+flash; the restore after this upload (not done yet). The `ef` frame's colour
+bytes equalled the colour already in force, so this does not show whether the
+speaker applies them.
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The
