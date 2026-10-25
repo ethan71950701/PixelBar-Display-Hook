@@ -1,15 +1,14 @@
-"""Send ONE known e8 "set text" frame to the PixelBar, nothing else.
+"""Send ONE known frame (set text e8 / set colour ef) to the PixelBar, nothing else.
 
-Stages B and C of the plan in CLAUDE.md. Only three fixed frames can be chosen
-(see ALLOWED): "A" replayed unmodified from capture usb-02-text-A (stage B),
-and "AB" / "ABC" built by pixelbar.frames and only sent if they equal captures
-usb-03-text-AB / usb-04-text-ABC byte for byte (stage C). There is no way to
-pass other bytes.
+Stages B and C of the plan in CLAUDE.md. Only the fixed frames in ALLOWED can
+be chosen: "A" is replayed unmodified from capture usb-02-text-A (stage B); the
+others are built by pixelbar.frames and only sent if they equal the captured
+frame byte for byte (stage C and colour). There is no way to pass other bytes.
 Nothing else is sent: no handshake, no clock sync, no ee poll.
 
 Usage:
-    python tools/replay_frame.py [--frame A|AB]   # print only, sends nothing
-    python tools/replay_frame.py --frame AB --send --yes-i-closed-tempohub
+    python tools/replay_frame.py --frame NAME     # print only, sends nothing
+    python tools/replay_frame.py --frame NAME --send --yes-i-closed-tempohub
 
 Requires: pip install hidapi (only imported when needed to find / open the device).
 Close TempoHub first, and watch the speaker's screen while this runs.
@@ -33,25 +32,35 @@ READ_TIMEOUT_MS = 2000
 #   AB : stage C, built by pixelbar.frames.text_frame("AB"); the build is only
 #        sent if it equals the captured frame byte for byte.
 ALLOWED = {
-    "A": ("usb-02-text-A", "2eaaece80003000141c3", "A"),
-    "AB": ("usb-03-text-AB", "2eaaece800040002414207", "AB"),
-    "ABC": ("usb-04-text-ABC", "2eaaece8000500034142434c", "ABC"),  # stage C, same rule as AB
+    "A": ("usb-02-text-A", "2eaaece80003000141c3", lambda: frames.text_frame("A")),
+    "AB": ("usb-03-text-AB", "2eaaece800040002414207", lambda: frames.text_frame("AB")),
+    "ABC": ("usb-04-text-ABC", "2eaaece8000500034142434c", lambda: frames.text_frame("ABC")),
     # first non-ASCII frame: 2 characters, 6 UTF-8 bytes (count byte = 06)
-    "NIHAO": ("usb-07-text-nihao", "2eaaece800080006e4bda0e5a5bd14", "你好"),
+    "NIHAO": ("usb-07-text-nihao", "2eaaece800080006e4bda0e5a5bd14", lambda: frames.text_frame("你好")),
+    # colour (cmd ef: 03, R, G, B). Only values TempoHub itself sent; the leading
+    # 03 is unexplained, so it is never varied. Bytes as sent, not the user's hex
+    # (capture 09: user said #003407 but 00 33 07 went out).
+    "COLOR_330200": ("usb-08-color-red", "2eaaecef000403330200c1", lambda: frames.color_frame(0x33, 0x02, 0x00)),
+    "COLOR_003307": ("usb-09-color-green", "2eaaecef000403003307c6", lambda: frames.color_frame(0x00, 0x33, 0x07)),
 }
 FIXTURE = os.path.join(REPO, "tests", "fixtures", "captured_frames.json")
 
 
 def verify_frame(name):
     """Refuse to continue unless the frame equals the capture and the builder."""
-    capture, literal, text = ALLOWED[name]
+    capture, literal, build = ALLOWED[name]
     frame = bytes.fromhex(literal).ljust(64, b"\x00")
     checks = {}
     with open(FIXTURE, encoding="utf-8") as fh:
         in_fixture = [bytes.fromhex(k["hex"]) for k in json.load(fh) if k["capture"] == capture]
     checks[f"equals the frame in tests/fixtures (capture {capture})"] = in_fixture == [frame]
-    checks[f"equals frames.text_frame({text!r})"] = frames.text_frame(text) == frame
-    checks[f"count byte {frame[7]} == UTF-8 byte length {len(text.encode('utf-8'))}"] = frame[7] == len(text.encode("utf-8"))
+    checks["equals the frame built by pixelbar.frames"] = build() == frame
+    if frame[3] == frames.CMD_SET_TEXT:
+        count, text = frame[7], frame[8:8 + frame[7]]
+        checks[f"text count byte {count} == payload length {frame[5] - 2} == {len(text)} UTF-8 bytes"] = (
+            count == frame[5] - 2 == len(text) and bool(text.decode("utf-8")))
+    if frame[3] == frames.CMD_SET_COLOR:
+        checks[f"colour payload is 03 + R G B ({frame[7:10].hex(' ')})"] = frame[5] == 4 and frame[6] == 0x03
     checks["is 64 bytes, Report ID 0x2e"] = len(frame) == 64 and frame[0] == 0x2E
     checks["checksum is valid"] = (sum(frame[1:len(literal) // 2 - 1]) & 0xFF) == frame[len(literal) // 2 - 1]
     for label, ok in checks.items():
@@ -89,13 +98,14 @@ def main():
     sys.stdout.reconfigure(errors="replace")  # the 你好 label must not crash a legacy console
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--frame", choices=sorted(ALLOWED), default="A",
-                    help="which fixed frame: A (stage B), AB, ABC, NIHAO (= 你好, stage C); default A")
+                    help="which fixed frame: A (stage B), AB, ABC, NIHAO (= 你好), "
+                         "COLOR_330200, COLOR_003307; default A")
     ap.add_argument("--send", action="store_true", help="really write the frame to the device")
     ap.add_argument("--yes-i-closed-tempohub", action="store_true",
                     help="required together with --send: TempoHub is closed")
     args = ap.parse_args()
 
-    print(f"frame to send (e8 set text {args.frame!r}, 64 bytes):")
+    print(f"frame to send ({args.frame}, 64 bytes):")
     frame = bytes.fromhex(ALLOWED[args.frame][1]).ljust(64, b"\x00")
     print(hex_rows(frame))
     verify_frame(args.frame)
@@ -129,7 +139,7 @@ def main():
         dev.close()
 
     if not reply:
-        print(f"no reply within {READ_TIMEOUT_MS} ms (TempoHub got a reply to every e8 in the captures)")
+        print(f"no reply within {READ_TIMEOUT_MS} ms (TempoHub got a reply to every e8 and ef in the captures)")
         return
     print(f"reply ({len(reply)} bytes):")
     print(hex_rows(reply))
