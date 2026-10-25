@@ -84,7 +84,9 @@ Workflow and status:
      image, bound by --expect-sha): all replies matched; the screen showed the
      image as in the picture (frame, F top-left, TEST 123 centred, block
      bottom-right; user-confirmed). So the layout 256x32, vertical bytes, LSB on
-     top is confirmed on the screen. Budget file = 2. Restore not yet done.
+     top is confirmed on the screen. Budget file = 2. The image was drawn in the
+     same greyish blue (336699) as Hello; restored through TempoHub afterwards
+     (screen back to 兼职成年人): both user-confirmed.
      Prepared (nothing sent): tools/png_upload.py --dry-run converts a 256x32
      PNG (outside the repo) to the bitmap and shows the whole upload and its
      differences from capture 20; there is no send path for converted images.

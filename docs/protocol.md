@@ -1183,12 +1183,22 @@ eye):
 - The text is centred; the screen was fully replaced (no `Hello` left over) and
   the image was still.
 
-Not settled: which colour the image was drawn in (the user's answer to the
-colour question says only that all parts were the same, without naming the
-colour); whether the scene stays after a power cycle; whether the upload writes
-flash; the restore after this upload (not done yet). The `ef` frame's colour
-bytes equalled the colour already in force, so this does not show whether the
-speaker applies them.
+Colour (confirmed by this live test, told by the user afterwards): the colour
+shown by the test image was the same greyish blue as `Hello`. Both had the
+colour `336699` set with the `ef` colour frame. So the image was drawn in that
+colour and not in some other fixed colour. This test cannot say whether the
+image takes the text colour setting or the RGB bytes inside the scene `ef`
+frame, because both were `33 66 99`.
+
+Restore (confirmed by this live test, told by the user afterwards): the user
+restored the scene in TempoHub by clicking another scene first, then clicking
+「兼职成年人」 again; after the progress bar finished the screen was back to
+「兼职成年人」. The USB traffic of this click was not captured.
+
+Not settled: whether the scene stays after a power cycle, and whether the
+upload writes flash. The `ef` frame's colour bytes equalled the colour already
+in force, so this does not show whether the speaker applies them. Upload budget
+used: 2 of 5.
 
 ## Unknown fields in the scene upload, and the risk of changing them
 
