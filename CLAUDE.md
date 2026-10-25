@@ -25,9 +25,12 @@ Workflow and status:
 1. Identify device: run tools/list_devices.py, record VID:PID in docs/protocol.md.
    DONE: USB HID 2d99:a106 (Jieli), vendor usage pages 0xFF13/0xFF14 on iface 4.
 2. User captures USB traffic (steps in README.md) into captures/.
-   DONE for capture 01 (app open/connect): frame format + checksum documented,
-   no screen data in it. NEXT: text A / AB / ABC / colour captures (full, unfiltered).
+   DONE for captures 01-06 (connect, text A/AB/ABC, colour, replug).
+   Raw .pcap files stay outside the repo (they contain keyboard traffic).
+   Still wanted: CJK text (e.g. 你好), and pure red / green colour captures.
 3. Analyse captures (tshark/Python), diff per action, fill docs/protocol.md.
+   Mostly DONE: frame = Report ID 2e/2f + aa/bb ec cmd len payload checksum;
+   e8 = set text (ASCII confirmed), ef = colour (guessed). See docs/protocol.md.
 4. Build pixelbar/ module + CLI: `python -m pixelbar text "你好" --color ff0000`,
    with --dry-run first. Images only after text works.
 Update this status list as steps finish.

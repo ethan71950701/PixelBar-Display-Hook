@@ -64,7 +64,7 @@ PDO->FDO), which the dev9 filter dropped. In the dev9 file every IN URB is
 | Commands go over USB HID interrupt endpoint 0x04 (OUT) and answers come back on 0x84 (IN), device address 9. Each transfer is exactly 64 bytes, zero padded | confirmed |
 | Request/response: every OUT frame is answered by one IN frame with the same command byte, ~2 ms later | confirmed (26 OUT, 28 IN) |
 | Endpoint 0x84/0x04 is on the interface-4 vendor HID (usage pages 0xFF13/0xFF14) | guessed (HID class is shown by Wireshark, interface number was not checked) |
-| Whether byte 0 (`2e`/`2f`) is a HID Report ID or part of the protocol | unknown - no HID report descriptor in this capture |
+| Whether byte 0 (`2e`/`2f`) is a HID Report ID or part of the protocol | RESOLVED by capture 06: it is the HID Report ID (see "Captures 02-06") |
 | Endpoint 0x03 isochronous = audio; other control/interrupt traffic is enumeration/descriptors | confirmed, ignored |
 | 28 of the 54 dev9 interrupt URBs are IN; 26 OUT; no encryption seen: all fields are readable plain bytes and ASCII/UTF-8 strings appear in clear | confirmed |
 
@@ -123,16 +123,117 @@ poll about every 0.5 s and a one-off `f0`. Two such rounds are present (about
   `花再` as 3-byte sequences). Whether screen text also uses UTF-8 is a guess.
 - Screen resolution, colour format, image chunking: unknown.
 
-### Open questions / next captures
+### Open questions after capture 01 (answered below in "Captures 02-06")
 
-1. Capture the next actions one at a time, using the full `.pcap`, not the
-   dev9-filtered one: `usb-02-text-A`, `usb-03-text-AB`, `usb-04-text-ABC`,
-   then colour only. Diff the OUT frames: new command ids and payload bytes
-   that change with the text.
-2. Capture a replug to get the HID report descriptor (decides whether byte 0
-   is a Report ID, and gives report sizes for 0xFF13 vs 0xFF14).
+1. Text / colour actions: see below.
+2. HID report descriptor: see below.
 3. Edition: the user believes it is the enhanced edition (2026); not verified
    against the box label or model number. Findings above apply to that unit.
 
 Tooling: `python tools/analyze_capture.py <full .pcap> [--dev N] [--timeline]`
-reproduces the frame, checksum and command tables in this section.
+reproduces the frame, checksum and command tables in this section;
+`--descriptors` decodes HID report descriptors from a replug capture.
+
+## Captures 02-06 (2026-10-25)
+
+Files (kept outside the repo, they contain unrelated keyboard traffic):
+`usb-02-text-A`, `-03-text-AB`, `-04-text-ABC`, `-05-color`, `-06-replug`.
+Speaker was device address 9 in 01-05; after the replug in 06 it re-enumerated
+as address 11 (VID 0x2D99 used to find it). Edition per the user: enhanced
+(not verified against the label). Nothing was sent to the device.
+
+### HID report descriptor (capture 06) - confirmed
+
+Read from GET_DESCRIPTOR(HID report) replies during enumeration.
+
+| Interface | Collection | Reports |
+|---|---|---|
+| 3 | Consumer Control (usage page 0x0C) | no Report ID, 1 input byte, 8 bits: usages 0xE9 0xEA 0xE2 0xCD 0xB5 0xB6 0xB3 0xB7 (volume up/down, mute, play/pause, next, previous, ...) |
+| 4 | vendor, usage page **0xFF13** | Report ID **0x06** OUTPUT 61 bytes, Report ID **0x07** INPUT 61 bytes (not seen used in any capture) |
+| 4 | vendor, usage page **0xFF14** | Report ID **0x2E** OUTPUT 63 bytes, Report ID **0x2F** INPUT 63 bytes (this is the channel all traffic uses) |
+
+So byte 0 of the 64-byte transfers (`2e` host->device, `2f` device->host) is the
+HID **Report ID**, not part of the protocol header (confirmed). The protocol
+frame is the following 63 bytes:
+
+    Report ID | tag  ec | cmd | len (2, BE) | payload | checksum | zero padding to 64
+    2e / 2f     aa/bb
+
+- tag byte: `aa` host->device, `bb` device->host; second byte always `ec`
+  (confirmed values, meaning guessed).
+- checksum = sum of the tag byte through the last payload byte, mod 256; the
+  Report ID is not included (confirmed, same data as before, restated).
+- With hidapi the write buffer is the full 64 bytes including the Report ID in
+  byte 0; the 0xFF14 collection on interface 4 is the one to open (guessed
+  mapping of usage page to hidapi device path; to be checked at send time).
+- Self-check: all 110 frames in captures 01-06 (both directions, addresses 9
+  and 11) were rebuilt from (Report ID, tag, cmd, payload) and are byte-exact
+  identical, including the zero padding (confirmed).
+
+### Text (captures 02, 03, 04) - confirmed for ASCII
+
+New command `e8` = set screen text. It is the only new OUT command in these
+three captures besides the already known `e7`, `77`, `6a`, `ee`.
+
+| Capture | Typed | `e8` payload | Reading |
+|---|---|---|---|
+| 02 | `A` | `00 01 41` | `00`, count 1, `41` |
+| 03 | `AB` | `00 02 41 42` | `00`, count 2, `41 42` |
+| 04 | `ABC` | `00 03 41 42 43` | `00`, count 3, `41 42 43` |
+
+- Payload = `00` + count byte + the text bytes. Confirmed for ASCII.
+- Encoding: single bytes `41 42 43`, so NOT UTF-16 (confirmed). It is
+  ASCII-compatible; UTF-8 is a guess (the device name in cmd `c9` is UTF-8).
+- Not known: whether the count is bytes or characters, and the maximum length
+  (they are equal for ASCII). Needs a capture with CJK text, e.g. `你好`.
+- No IN reply to `e8` was seen (confirmed in these captures); the app confirms
+  with `e7` (below). The first `00` byte is unknown (index/slot? guessed).
+- Read back, cmd `e7` with payload `00`: reply `00 10 32 <count> <text>` (e.g.
+  `00 10 32 03 41 42 43`). The app sends it twice after each `e8`. The bytes
+  `10 32` are unknown (maybe limits, guessed). In capture 01 the same reply was
+  `... 05 6c 73 70 73 73` = the text that was on screen before, "lspss"
+  (confirmed decode).
+- The status poll `ee` (12-byte reply) changed when text was set: bytes 5 and 7
+  went `01..00` -> `02..01` (`002592ff 0001 0000 ff010000` ->
+  `002592ff 0002 0001 ff010000`). It did not change between A, AB and ABC, so
+  it is not the length. Meaning unknown (display mode? guessed).
+- No other command was needed to make the text appear in the captures (no
+  separate "apply" frame). That the screen actually changed was not observed
+  by the capture itself, only by the user (not verified).
+- Time sync `77` was resent in capture 04 (`07ea 0a 19 0f 32 12 00 01` =
+  2026-10-25 15:50:18) and is answered with `01`.
+
+### Colour (capture 05) - strong guess, not confirmed
+
+Only frame pair in the file:
+
+    OUT  cmd ef  payload 03 27 99 ff
+    IN   cmd ef  payload 03 27 99 ff 00 00 ff ff ff
+
+- Evidence for `27 99 ff` = RGB: the `ee` status reply before the change had
+  bytes 1-3 = `25 92 ff`; in capture 06 (after the colour change, after replug)
+  they are `27 99 ff` (confirmed: same three bytes the app sent). So `ee`
+  bytes 1-3 mirror the current colour. (`25 92 ff` and `27 99 ff` are both
+  light blue.)
+- Guess: payload = `03` + R G B. The meaning of `03` is unknown (zone,
+  effect or colour slot).
+- The IN reply echoes the 4 bytes then `00 00 ff ff ff`; meaning unknown
+  (possibly another colour = white).
+- Not confirmed because the exact colour the user picked was not recorded and
+  there is only one colour sample. A pure red / green capture would settle it.
+
+### Replug (capture 06)
+
+After the replug the app repeats the same startup queries as capture 01
+(`d8 c9 c8 c6 65 66 d5 68 6a ee 87`), all with identical replies, so the device
+info is stable (confirmed). `ee` reply: `002799ff00020001ff010000`.
+
+### Can the text module be written?
+
+Yes for an ASCII-only first version, **dry-run only** (project rule: nothing is
+sent until a `--dry-run` frame equals the captured bytes). The frame builder
+reproduces the captured `e8` frames byte-exact for `A`, `AB`, `ABC`.
+Open items before real sending: CJK/UTF-8 and the count semantics, colour
+(`ef`) meaning, the extra `00` byte, whether other state (`ee` bytes 5/7) must
+be set for the text to be shown, and which hidapi path maps to the 0xFF14
+collection.

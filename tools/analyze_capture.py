@@ -1,7 +1,10 @@
 """Summarise PixelBar HID frames in a USBPcap capture (read-only, offline).
 
 Usage: python tools/analyze_capture.py captures/usb-01-open-app.pcap [--dev 9] [--timeline]
-Requires: Wireshark's tshark (found on PATH or in C:\\Program Files\\Wireshark).
+       python tools/analyze_capture.py captures/usb-06-replug.pcap --descriptors
+Requires: Wireshark's tshark (found on PATH or in C:\\Program Files\\Wireshark),
+except --descriptors, which reads classic .pcap files directly (a replug
+capture is needed: the HID report descriptors are sent during enumeration).
 
 Frame layout seen so far (docs/protocol.md), 64-byte HID reports:
     magic(3) cmd(1) len(2, big endian) payload(len) checksum(1) zero padding
@@ -15,10 +18,75 @@ import argparse
 import collections
 import os
 import shutil
+import struct
 import subprocess
 import sys
 
 MAGIC = {b"\x2e\xaa\xec": "OUT", b"\x2f\xbb\xec": "IN "}
+
+USAGE_PAGES = {0x01: "Generic Desktop", 0x0C: "Consumer"}
+MAIN_ITEMS = {0x8: "Input", 0x9: "Output", 0xB: "Feature", 0xA: "Collection", 0xC: "End Collection"}
+
+
+def read_pcap(path):
+    """Yield raw packets of a classic little-endian .pcap (USBPcap, linktype 249)."""
+    with open(path, "rb") as fh:
+        head = fh.read(24)
+        if head[:4] != b"\xd4\xc3\xb2\xa1":
+            sys.exit("--descriptors needs a classic little-endian .pcap (not pcapng)")
+        while True:
+            rec = fh.read(16)
+            if len(rec) < 16:
+                return
+            incl = struct.unpack("<IIII", rec)[2]
+            yield fh.read(incl)
+
+
+def hid_report_descriptors(path):
+    """Return {(device, interface): bytes} for GET_DESCRIPTOR(HID report) replies."""
+    found = {}
+    pending = {}
+    for pkt in read_pcap(path):
+        if len(pkt) < 28:
+            continue
+        hdr_len, _irp, _status, _func, info, _bus, dev, endpoint, transfer = struct.unpack(
+            "<H8sIHBHHBB", pkt[:22 + 1])[:9]
+        if transfer != 2:
+            continue
+        stage, body = pkt[27], pkt[hdr_len:]
+        if stage == 0 and not info & 1 and len(body) == 8:
+            bm, req, value, index, _length = struct.unpack("<BBHHH", body)
+            if (bm, req, value >> 8) == (0x81, 6, 0x22):
+                pending[dev] = index
+        elif stage == 3 and info & 1 and dev in pending and body:
+            found[(dev, pending.pop(dev))] = bytes(body)
+    return found
+
+
+def decode_report_descriptor(desc):
+    """Print a flat, indented decode of a HID report descriptor."""
+    i, depth = 0, 0
+    while i < len(desc):
+        prefix = desc[i]
+        size = (0, 1, 2, 4)[prefix & 3]
+        tag, kind = prefix >> 4, (prefix >> 2) & 3
+        value = int.from_bytes(desc[i + 1:i + 1 + size], "little")
+        i += 1 + size
+        if kind == 0:
+            name = MAIN_ITEMS.get(tag, f"Main(0x{tag:x})")
+            if name == "End Collection":
+                depth -= 1
+            print("    " + "  " * depth + f"{name} 0x{value:02x}" if size else "    " + "  " * depth + name)
+            if name == "Collection":
+                depth += 1
+        elif kind == 1:
+            names = {0: "Usage Page", 1: "Logical Min", 2: "Logical Max", 7: "Report Size",
+                     8: "Report ID", 9: "Report Count"}
+            label = names.get(tag, f"Global(0x{tag:x})")
+            extra = f" ({USAGE_PAGES[value]})" if tag == 0 and value in USAGE_PAGES else ""
+            print("    " + "  " * depth + f"{label} 0x{value:x}{extra}")
+        else:
+            print("    " + "  " * depth + f"Usage 0x{value:x}" if tag == 0 else "    " + "  " * depth + f"Local(0x{tag:x}) 0x{value:x}")
 
 
 def find_tshark():
@@ -67,7 +135,18 @@ def main():
     ap.add_argument("pcap")
     ap.add_argument("--dev", type=int, help="USB device address (default: any)")
     ap.add_argument("--timeline", action="store_true", help="print every frame in order")
+    ap.add_argument("--descriptors", action="store_true",
+                    help="decode HID report descriptors (replug capture, .pcap only)")
     args = ap.parse_args()
+
+    if args.descriptors:
+        found = hid_report_descriptors(args.pcap)
+        if not found:
+            sys.exit("no HID report descriptors found (was the device replugged during the capture?)")
+        for (dev, iface), desc in sorted(found.items()):
+            print(f"device {dev} interface {iface}: {len(desc)} bytes\n  {desc.hex()}")
+            decode_report_descriptor(desc)
+        return
 
     frames = read_frames(find_tshark(), args.pcap, args.dev)
     if not frames:
