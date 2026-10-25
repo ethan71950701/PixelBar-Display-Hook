@@ -101,8 +101,9 @@ Workflow and status:
      Own pictures (developed, NOTHING sent yet): `python -m pixelbar image PIC`
      (dry run by default) and `prepare PIC OUT.png`, Pillow optional
      (pixelbar/prepare.py only). Limits that only ~/.pixelbar/limits.json can
-     raise: 5 uploads in total (3 used), 3 per day (today's 3 are used), no
-     repeat of the last completed bitmap. The first real upload of an own
+     raise: 5 uploads in total (3 used), 10 per day (3 used today), no
+     repeat of the last completed bitmap; `image --send` also needs
+     `--expect-sha` = the hash of the previewed bitmap. The first real upload of an own
      picture needs the user's separate approval. See "Uploading your own
      pictures" in docs/protocol.md (incl. what is not verified).
      Prepared (nothing sent): tools/png_upload.py --dry-run converts a 256x32

@@ -1425,7 +1425,8 @@ real upload of an own picture needs the user's separate approval.
 ```
 python -m pixelbar image PICTURE [--fit cover|contain|stretch] [--focus-x 0..1] [--focus-y 0..1]
                          [--mode dither|threshold] [--threshold N] [--invert] [--autocontrast]
-                         [--preview-dir DIR] [--send --yes-i-closed-tempohub]
+                         [--preview-dir DIR] [--expect-sha HEX]
+                         [--send --expect-sha HEX --yes-i-closed-tempohub]
 python -m pixelbar prepare PICTURE OUT.png [the same picture options] [--overwrite]
 ```
 
@@ -1457,8 +1458,12 @@ python -m pixelbar prepare PICTURE OUT.png [the same picture options] [--overwri
   (`T`, `XX XX`, `p5`, `p6`, `p7`) at capture 20's values. Without `--send`
   nothing touches the device; a test makes every device function raise and
   blocks importing hidapi while the dry run runs.
-- Uploading (`image ... --send --yes-i-closed-tempohub`, or the interactive
-  "TempoHub closed?" question): the bounded exchange of stage 2, once. Every
+- Uploading (`image ... --send --expect-sha HEX --yes-i-closed-tempohub`, or
+  the interactive "TempoHub closed?" question): `--expect-sha` is REQUIRED with
+  `--send`: at least 12 hex digits of the bitmap SHA-256 that the dry run
+  prints, so that exactly the bitmap that was looked at is sent (a missing or
+  wrong hash refuses before anything else; in a dry run the hash is only
+  checked and the dry run says which hash to use). The bounded exchange of stage 2, once. Every
   picture goes into the scene of capture 20 and replaces it until TempoHub
   uploads it again (clicking another scene and then 「兼职成年人」 restored it
   three times).
@@ -1469,12 +1474,15 @@ State is in `~/.pixelbar/` (outside the repository): `stage3_uploads.txt` (the
 number of uploads started; 3 were used before this work, the file already
 said 3), `upload_log.jsonl` (one start line and one end line per upload, with
 the bitmap's SHA-256), and the optional `limits.json`
-(`{"total": 5, "per_day": 3}`, these are the defaults).
+(`{"total": 5, "per_day": 10}`, these are the defaults).
 
-- Total budget: 5 uploads; the 3 already made count.
-- Daily cap: 3 uploads per calendar day (counted from the log). The three uploads
-  of 2026-10-25 were written into the log afterwards from the session notes
-  (marked in their `note` field; no times), so today's cap is already used up.
+- Total budget: 5 uploads; the 3 already made count. This is the limit set for
+  the test phase; it is raised only by editing `limits.json`.
+- Daily cap: 10 uploads per calendar day (counted from the log); it was 3 at
+  first and was raised on the user's remark that changing the picture ten times
+  a day is normal use. The three uploads of 2026-10-25 were written into the
+  log afterwards from the session notes (marked in their `note` field; no
+  times), so they count towards today.
 - No repeat: a bitmap whose SHA-256 equals that of the last COMPLETED upload is
   refused (the picture would not change). A failed attempt counts against the
   budget and the day but is not "the picture is already there". If the screen
@@ -1500,8 +1508,13 @@ the bitmap's SHA-256), and the optional `limits.json`
 - Pillow 13.0.0 only; phone photos with real EXIF data, CMYK, 16-bit and
   animated pictures were not tried (an in-memory PNG with an EXIF orientation
   tag was).
-- The default daily cap of 3 and the preview folder are choices made here, not
-  measured limits; the default folder is a Windows path.
+- The default daily cap of 10 (set from the user's remark about normal use,
+  not from any measurement of the flash) and the preview folder are choices
+  made here, not measured limits; the default folder is a Windows path. Under
+  the pessimistic assumptions of the slideshow assessment above (every upload
+  rewrites the same sectors, endurance 10,000 / 100,000 cycles), 10 uploads a
+  day would take about 1,000 days (2.7 years) / 27 years to reach that
+  endurance; this is an illustration, not a measurement.
 
 ## Unknown fields in the scene upload, and the risk of changing them
 

@@ -117,6 +117,8 @@ def cmd_image(args):
     print(f"wrote the 4x preview of that bitmap: {out}")
 
     steps, checks = upload_replay.load_plan(image=bitmap)
+    if args.expect_sha is not None:
+        checks["--expect-sha matches the bitmap that would be uploaded"] = image.sha_matches(bitmap, args.expect_sha)
     with open(upload_replay.FIXTURE, encoding="utf-8") as fh:
         captured = [bytes.fromhex(h) for h in json.load(fh)[upload_replay.KEY]["out"]]
     diffs = upload_replay.frame_differences(steps, captured)
@@ -134,12 +136,21 @@ def cmd_image(args):
     for problem in problems:
         print(f"  an upload would be refused: {problem}")
     if not args.send:
-        print("dry run: nothing was sent." + (" Add --send to upload this bitmap." if not problems else ""))
+        print("dry run: nothing was sent.")
+        if problems:
+            print("This bitmap could not be uploaded now (see above).")
+        elif not all(checks.values()):
+            print("A check above says FAIL: this would not be uploaded.")
+        else:
+            print(f"To upload it: add --send --expect-sha {sha[:12]} (the hash of exactly this bitmap).")
         return
     if problems:
         sys.exit("refused; nothing was sent")
+    if args.expect_sha is None:
+        sys.exit(f"--send needs --expect-sha: copy at least 12 digits of the bitmap sha256 shown above ({sha[:16]} for this one), "
+                 "so that what is sent is what you looked at; nothing was sent")
     if not all(checks.values()):
-        sys.exit("plan verification failed; nothing was sent")
+        sys.exit("plan verification failed (a check above says FAIL); nothing was sent")
     confirm_tempohub_closed(args)
     try:
         result = image_send.send_upload(steps, bitmap, device.open_device)
@@ -160,6 +171,8 @@ def main(argv=None):
     im.add_argument("picture")
     add_prepare_options(im)
     im.add_argument("--preview-dir", default=PREVIEW_DIR, help=f"where the 4x preview PNG goes (default {PREVIEW_DIR}; keep it outside the repository)")
+    im.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; "
+                    "required with --send, so that exactly the bitmap you looked at is sent (optional in a dry run: checks it)")
     add_send_options(im)
     pr = sub.add_parser("prepare", help="only convert a picture to a 256x32 black-and-white PNG for you to check")
     pr.add_argument("picture")

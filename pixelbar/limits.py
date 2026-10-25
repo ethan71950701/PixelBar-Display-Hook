@@ -3,7 +3,7 @@
 State lives outside the repository in ~/.pixelbar/:
   stage3_uploads.txt  how many uploads were started in total (the budget counter)
   upload_log.jsonl    one line per upload start / end: date, bitmap SHA-256, status
-  limits.json         OPTIONAL {"total": N, "per_day": M}; the defaults are 5 and 3.
+  limits.json         OPTIONAL {"total": N, "per_day": M}; the defaults are 5 and 10.
                       The only way to raise a limit is to edit this file on purpose;
                       there is no command line option for it.
 An upload is refused when: the total budget is used up, the daily cap is reached, or
@@ -24,7 +24,7 @@ BUDGET_FILE = "stage3_uploads.txt"
 LIMITS_FILE = "limits.json"
 LOG_FILE = "upload_log.jsonl"
 DEFAULT_TOTAL = 5
-DEFAULT_PER_DAY = 3
+DEFAULT_PER_DAY = 10
 
 
 class LimitsError(Exception):
@@ -48,7 +48,7 @@ def load_limits(state_dir=None):
     try:
         total, per_day = int(data.get("total", DEFAULT_TOTAL)), int(data.get("per_day", DEFAULT_PER_DAY))
     except (AttributeError, TypeError, ValueError):
-        raise LimitsError(f'{path} must look like {{"total": 5, "per_day": 3}}') from None
+        raise LimitsError(f'{path} must look like {{"total": 5, "per_day": 10}}') from None
     if total < 0 or per_day < 0:
         raise LimitsError(f"{path}: the limits cannot be negative")
     return total, per_day

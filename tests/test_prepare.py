@@ -173,7 +173,7 @@ class LimitsTests(unittest.TestCase):
         self.write(limits.LOG_FILE, "".join(json.dumps(e) + "\n" for e in entries))
 
     def test_defaults_and_the_file_override(self):
-        self.assertEqual(limits.load_limits(self.dir), (5, 3))
+        self.assertEqual(limits.load_limits(self.dir), (5, 10))
         self.write(limits.LIMITS_FILE, '{"total": 8, "per_day": 4}')
         self.assertEqual(limits.load_limits(self.dir), (8, 4))
         self.write(limits.LIMITS_FILE, "not json")
@@ -195,7 +195,9 @@ class LimitsTests(unittest.TestCase):
 
     def test_daily_cap(self):
         today = "2026-10-26"
-        self.log(*[{"date": today, "sha256": "x", "status": "started"}] * 3)
+        self.log(*[{"date": today, "sha256": "x", "status": "started"}] * 9)
+        self.assertEqual(limits.problems_for_upload("b" * 64, self.dir, today), [])          # 9 of 10 used: one more is allowed
+        self.log(*[{"date": today, "sha256": "x", "status": "started"}] * 10)
         problems = limits.problems_for_upload("b" * 64, self.dir, today)
         self.assertTrue(any("daily" in p for p in problems))
         self.assertEqual(limits.problems_for_upload("b" * 64, self.dir, "2026-10-27"), [])   # another day
@@ -274,7 +276,7 @@ class SendTests(unittest.TestCase):
 
     def test_the_daily_cap_refuses(self):
         log = limits.UploadLog(limits.state_path(limits.LOG_FILE, self.dir))
-        for _ in range(3):
+        for _ in range(10):
             log.append(date="2026-10-26", sha256="x", status="started")
         with self.assertRaises(image_send.UploadRefused):
             self.send()
@@ -363,14 +365,41 @@ class CliTests(unittest.TestCase):
         self.assertIn("[OK] ef, start and end frames equal the TempoHub frames of capture 20", text)
         self.assertIn("[OK] every differing frame is a data frame and differs only in image bytes and its own checksum", text)
 
-    @needs_pillow
-    def test_send_needs_the_confirmation_before_any_device_access(self):
+    def send_attempt(self, *extra):
+        """Run `image PIC --send ...` with the device forbidden and no terminal; return the SystemExit text."""
         path = os.path.join(self.dir, "p.png")
         Image.linear_gradient("L").resize((256, 32)).save(path)
         with self.forbid_the_device(), mock.patch.object(sys, "stdin", io.StringIO("")):       # not a terminal: no question can be asked
             with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stdout(io.StringIO()):
-                cli.main(["image", path, "--preview-dir", self.dir, "--send"])
-        self.assertIn("not confirmed", str(ctx.exception))
+                cli.main(["image", path, "--preview-dir", self.dir, "--send", *extra])
+        return str(ctx.exception), image_send.bitmap_sha256(image.pack_pixels(prepare.prepare_file(path)))
+
+    @needs_pillow
+    def test_send_needs_the_confirmation_before_any_device_access(self):
+        _, sha = self.send_attempt("--expect-sha", "0" * 12)          # (computes the real hash too)
+        message, _ = self.send_attempt("--expect-sha", sha[:12])
+        self.assertIn("not confirmed", message)                       # the hash matched; the missing terminal stops it next
+
+    @needs_pillow
+    def test_send_needs_the_hash_of_the_previewed_bitmap(self):
+        message, sha = self.send_attempt()
+        self.assertIn("--send needs --expect-sha", message)
+        self.assertIn(sha[:16], message)                              # it tells which hash to copy
+        message, _ = self.send_attempt("--expect-sha", "0" * 12)
+        self.assertIn("plan verification failed", message)
+        message, _ = self.send_attempt("--expect-sha", sha[:11])      # too short to bind
+        self.assertIn("plan verification failed", message)
+
+    @needs_pillow
+    def test_dry_run_checks_the_hash_when_one_is_given(self):
+        path = os.path.join(self.dir, "p.png")
+        Image.linear_gradient("L").resize((256, 32)).save(path)
+        sha = image_send.bitmap_sha256(image.pack_pixels(prepare.prepare_file(path)))
+        with self.forbid_the_device():
+            good = self.run_cli("image", path, "--preview-dir", self.dir, "--expect-sha", sha[:12])
+            bad = self.run_cli("image", path, "--preview-dir", self.dir, "--expect-sha", "f" * 12)
+        self.assertIn("[OK] --expect-sha matches", good)
+        self.assertIn("[FAIL] --expect-sha matches", bad)
 
     @needs_pillow
     def test_prepare_writes_a_binary_256x32_png_and_will_not_overwrite(self):
