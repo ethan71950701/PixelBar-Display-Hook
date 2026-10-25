@@ -3,8 +3,9 @@
 Goal: control the pixel screen of the Edifier(漫步者) 花再 Halo PixelBar speaker
 from Windows with Python: custom text first, custom images later.
 Owner has either the basic edition (2025) or the enhanced edition (2026, 419 RMB,
-real-time lyrics, Bluetooth 6.0 + USB). Edition: enhanced, per the user
-(2026-10-25; not yet verified against the box label or model number).
+real-time lyrics, Bluetooth 6.0 + USB). Edition: ENHANCED, per the user
+(2026-10-25; they state it has Bluetooth 6.0 and real-time lyrics; not verified
+against the box label or model number). Image upload support unknown.
 
 Known facts (from public web reports, not verified):
 - Official PC software is "EDIFIER TempoHub"; it controls the speaker over USB
