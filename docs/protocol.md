@@ -1549,11 +1549,25 @@ applied by the speaker; they are replaced in the reply by the colour in force.
 Everything else in the reply (`01`, `00 01 02 21 ff`) equals what was sent.
 
 What it does not show: what the speaker did with the scene-select frame (the
-screen after it is the user's observation, see below if it was recorded), and
-whether a later upload would work: the upload itself (start, data, end) was
-not started. The check that expects an exact echo of the colour bytes was
-stricter than what the speaker does; it has not been changed (a change to what
-counts as an expected reply needs the user's approval).
+screen after it was not reported; the user's message ended with an empty
+"the screen shows:"), and whether a later upload would work: the upload itself
+(start, data, end) was not started.
+
+Change to the reply check (made with the user's approval, "the three colour
+bytes of the reply may be the current colour, everything else must be the
+same"): in `pixelbar/upload_replay.py` the reply to the scene-select frame
+(step 0 only) is accepted if it equals the expected reply except for the three
+colour bytes (reply bytes 7-9), and its own checksum is right for the bytes
+received. Any other difference in that reply (for instance `sel`, `p5`, `p6`,
+`p7`, the tag, the command, a stray byte in the padding or a wrong checksum)
+still stops the run at once, and every other step still needs an exact match
+(tested, including with the raw reply of this attempt as test data). When the
+colour differs, the tool logs "reply matched except the colour bytes, which
+are the speaker's current colour ..." and the result carries it as
+`colour_reported`. The same check is used by every tool that runs the exchange
+(`replay_upload.py`, `upload_pixel.py`, `send_png.py` and `image --send`). A
+dry run now prints this reply rule. The upload budget of this attempt stays
+counted (4 of 5); raising the total is only done by editing `limits.json`.
 
 ## Unknown fields in the scene upload, and the risk of changing them
 

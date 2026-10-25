@@ -128,6 +128,8 @@ def cmd_image(args):
     print("checks (the unknown fields keep capture 20's values):")
     for name, ok in checks.items():
         print(f"  [{'OK' if ok else 'FAIL'}] {name}")
+    print("reply rule: every reply must equal the expected one; only the 3 colour bytes of the scene-select (ef) reply may be the "
+          "speaker's current colour (its checksum must still be right); the first other reply or a timeout stops the run")
     try:
         print("limits: " + limits.status_line())
         problems = limits.problems_for_upload(sha)

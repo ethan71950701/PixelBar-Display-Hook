@@ -99,7 +99,7 @@ def load_plan(fixture=FIXTURE, pixel=None, image=None):
     steps = []
     for i, frame in enumerate(built):
         if i == 0:
-            label, reply = "ef scene select", expected[0]
+            label, reply = SCENE_SELECT_LABEL, expected[0]
         elif i == 1:
             label, reply = "17 start", expected[1]
         elif i == n - 1:
@@ -157,9 +157,29 @@ def hx(data):
     return bytes(data).rstrip(b"\x00").hex()
 
 
-def classify(data, expected):
+SCENE_SELECT_LABEL = "ef scene select"
+_EF_PAYLOAD = 6                      # offset of the 9-byte payload in a 64-byte frame
+_EF_COLOUR = (7, 8, 9)               # payload bytes 1-3: R G B
+_EF_CHECKSUM = _EF_PAYLOAD + 9
+
+
+def same_but_colour(data, expected):
+    """True if `data` is `expected` except for the three colour bytes of an ef frame.
+
+    The speaker answers the scene-select frame with the text colour in force, not with the colour
+    bytes that were sent (seen in upload attempt 4). Everything else has to be identical, and the
+    checksum of what was received has to be right for the bytes received.
+    """
+    if len(data) != len(expected) or len(data) <= _EF_CHECKSUM:
+        return False
+    if any(data[i] != expected[i] for i in range(len(expected)) if i not in _EF_COLOUR and i != _EF_CHECKSUM):
+        return False
+    return data[_EF_CHECKSUM] == sum(data[1:_EF_CHECKSUM]) & 0xFF
+
+
+def classify(data, expected, colour_may_differ=False):
     """'matched', 'unsolicited' (an ee or 66 push from the speaker) or 'mismatch'."""
-    if data == expected:
+    if data == expected or (colour_may_differ and same_but_colour(data, expected)):
         return "matched"
     if len(data) >= 4 and data[0] == frames.REPORT_ID_IN and data[2] == frames.SECOND_MAGIC and data[3] in UNSOLICITED_COMMANDS:
         return "unsolicited"
@@ -168,7 +188,8 @@ def classify(data, expected):
 
 def run(dev, steps, clock=time.monotonic, log=print):
     """Write the steps in order. Returns a dict; ok is True only if every expected reply matched."""
-    result = {"ok": False, "written": 0, "matched": 0, "unsolicited": [], "stopped_at": None, "reason": None, "raw": None, "elapsed": 0.0}
+    result = {"ok": False, "written": 0, "matched": 0, "unsolicited": [], "stopped_at": None, "reason": None, "raw": None, "elapsed": 0.0,
+              "colour_reported": None}
     t0 = clock()
 
     def stop(i, reason, raw=None):
@@ -196,7 +217,7 @@ def run(dev, steps, clock=time.monotonic, log=print):
             data = bytes(dev.read(64, max(1, int(remaining * 1000))))
             if not data:
                 continue
-            kind = classify(data, expected)
+            kind = classify(data, expected, colour_may_differ=(label == SCENE_SELECT_LABEL))
             if kind == "unsolicited":
                 result["unsolicited"].append((i, hx(data)))
                 log(f"[{clock() - t0:6.3f}s]   unsolicited from the speaker (recorded, ignored): {hx(data)}")
@@ -207,7 +228,11 @@ def run(dev, steps, clock=time.monotonic, log=print):
                     reason = f"the speaker announces chunk size {int.from_bytes(data[8:10], 'big')}, not {upload.CHUNK_BYTES}"
                 return stop(i, reason, data.rstrip(b"\x00"))
             result["matched"] += 1
-            log(stamp + f"; reply matched ({hx(data)})")
+            if data != expected:                  # only possible for the scene-select frame: the colour in force
+                result["colour_reported"] = data[_EF_COLOUR[0]:_EF_COLOUR[-1] + 1].hex()
+                log(stamp + f"; reply matched except the colour bytes, which are the speaker's current colour {result['colour_reported']} ({hx(data)})")
+            else:
+                log(stamp + f"; reply matched ({hx(data)})")
             break
     result.update(ok=True, elapsed=clock() - t0)
     return result

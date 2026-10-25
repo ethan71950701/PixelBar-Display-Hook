@@ -102,7 +102,11 @@ Workflow and status:
      2026-10-25: the speaker's reply to the ef scene-select frame carried its
      current colour (ff ff ff) instead of the 33 66 99 we sent, so the strict
      "exact echo" check stopped the run after 1 of 25 frames. Budget 4 of 5
-     used. Not retried; changing the check needs the user's approval.
+     used. Not retried. Then, with the user's approval, the reply check was
+     changed: the 3 colour bytes of the scene-select reply may be the colour in
+     force (everything else and its checksum must still match; all other steps
+     exact). The next upload needs the user's go-ahead; they will raise
+     limits.json "total" themselves.
      Own pictures (developed; one real upload attempt so far, see above): `python -m pixelbar image PIC`
      (dry run by default) and `prepare PIC OUT.png`, Pillow optional
      (pixelbar/prepare.py only). Limits that only ~/.pixelbar/limits.json can

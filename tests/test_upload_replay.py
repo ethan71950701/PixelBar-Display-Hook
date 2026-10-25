@@ -136,6 +136,81 @@ class PixelTests(unittest.TestCase):
             self.assertEqual(budget.used(), 5)
 
 
+def ef_reply(rgb=(0x33, 0x66, 0x99), sel=1, p5=1, p6=2, p7=0x21):
+    return frames.build_frame(frames.CMD_SET_COLOR, bytes([sel, *rgb, 0x00, p5, p6, p7, 0xFF]), report_id=0x2F, tag=0xBB)
+
+
+# What the speaker really answered to the scene-select frame in upload attempt 4 (text colour white at that moment).
+LIVE_REPLY = bytes.fromhex("2fbbecef000901ffffff00010221ffc0").ljust(64, b"\x00")
+
+
+class SceneSelectReplyTests(unittest.TestCase):
+    """The scene-select reply may carry the colour in force; nothing else may differ."""
+
+    def test_the_expected_reply_is_the_echo_with_the_captured_colour(self):
+        self.assertEqual(STEPS[0][2], ef_reply())
+
+    def test_the_live_reply_differs_only_in_the_colour_and_the_checksum(self):
+        diff = [i for i in range(64) if LIVE_REPLY[i] != STEPS[0][2][i]]
+        self.assertEqual(diff, [7, 8, 9, 15])
+        self.assertEqual(LIVE_REPLY, ef_reply((0xFF, 0xFF, 0xFF)))      # it is a well-formed frame
+
+    def test_classify_accepts_the_other_colour_only_where_allowed(self):
+        expected = STEPS[0][2]
+        self.assertEqual(upload_replay.classify(expected, expected), "matched")
+        self.assertEqual(upload_replay.classify(LIVE_REPLY, expected), "mismatch")                          # strict by default
+        self.assertEqual(upload_replay.classify(LIVE_REPLY, expected, colour_may_differ=True), "matched")
+        self.assertEqual(upload_replay.classify(ef_reply((0, 0, 0)), expected, colour_may_differ=True), "matched")
+
+    def test_anything_else_that_differs_still_mismatches(self):
+        expected = STEPS[0][2]
+        for name, bad in [("sel", ef_reply(sel=2)), ("p5", ef_reply(p5=2)), ("p6", ef_reply(p6=3)), ("p7", ef_reply(p7=0x22)),
+                          ("other command", frames.build_frame(0x77, b"\x02", report_id=0x2F, tag=0xBB)),
+                          ("tag", frames.build_frame(frames.CMD_SET_COLOR, bytes([1, 0xFF, 0xFF, 0xFF, 0, 1, 2, 0x21, 0xFF]), report_id=0x2F, tag=0xCC))]:
+            with self.subTest(differs_in=name):
+                self.assertEqual(upload_replay.classify(bad, expected, colour_may_differ=True), "mismatch")
+        broken = bytearray(LIVE_REPLY)
+        broken[15] ^= 0x01                                                  # the checksum no longer fits the bytes
+        self.assertEqual(upload_replay.classify(bytes(broken), expected, colour_may_differ=True), "mismatch")
+        extra = bytearray(LIVE_REPLY)
+        extra[40] = 1                                                       # a stray byte in the padding
+        self.assertEqual(upload_replay.classify(bytes(extra), expected, colour_may_differ=True), "mismatch")
+
+    def test_the_exchange_accepts_the_live_reply_and_reports_the_colour(self):
+        script = dict(GOOD)
+        script[0] = [LIVE_REPLY]
+        clock = Clock()
+        dev = FakeDevice(clock, script)
+        logged = []
+        result = upload_replay.run(dev, STEPS, clock=clock, log=logged.append)
+        self.assertTrue(result["ok"])
+        self.assertEqual((result["written"], result["matched"], result["colour_reported"]), (25, 24, "ffffff"))
+        self.assertTrue(any("current colour ffffff" in line for line in logged))
+
+    def test_the_exchange_stops_at_once_on_any_other_difference_in_that_reply(self):
+        for bad in (ef_reply((0xFF, 0xFF, 0xFF), p7=0x22), ef_reply((0xFF, 0xFF, 0xFF), sel=2)):
+            script = dict(GOOD)
+            script[0] = [bad]
+            clock = Clock()
+            dev = FakeDevice(clock, script)
+            result = upload_replay.run(dev, STEPS, clock=clock, log=lambda line: None)
+            self.assertFalse(result["ok"])
+            self.assertEqual((result["stopped_at"], len(dev.writes)), (0, 1))     # one frame written, nothing after it
+
+    def test_the_colour_allowance_does_not_reach_other_steps(self):
+        # the start reply with its bytes 7-9 changed (the same offsets as the colour bytes) must still stop the run
+        script = dict(GOOD)
+        start = bytearray(STEPS[1][2])
+        start[7], start[8], start[9] = 0x02, 0x00, 0x20
+        start[11] = sum(start[1:11]) & 0xFF
+        script[1] = [bytes(start)]
+        clock = Clock()
+        dev = FakeDevice(clock, script)
+        result = upload_replay.run(dev, STEPS, clock=clock, log=lambda line: None)
+        self.assertFalse(result["ok"])
+        self.assertEqual((result["stopped_at"], len(dev.writes)), (1, 2))
+
+
 class ExchangeTests(unittest.TestCase):
     def test_success_writes_the_captured_frames_unchanged(self):
         result, dev = go(GOOD)
