@@ -27,10 +27,17 @@ Workflow and status:
 2. User captures USB traffic (steps in README.md) into captures/.
    DONE for captures 01-06 (connect, text A/AB/ABC, colour, replug).
    Raw .pcap files stay outside the repo (they contain keyboard traffic).
-   Still wanted: CJK text (e.g. 你好), and pure red / green colour captures.
+   Captures 07-09 added: text is UTF-8 with a BYTE count, colour is R G B.
+   No bitmap/pixel command seen yet; an image upload has not been captured.
 3. Analyse captures (tshark/Python), diff per action, fill docs/protocol.md.
    Mostly DONE: frame = Report ID 2e/2f + aa/bb ec cmd len payload checksum;
    e8 = set text (ASCII confirmed), ef = colour (guessed). See docs/protocol.md.
 4. Build pixelbar/ module + CLI: `python -m pixelbar text "你好" --color ff0000`,
    with --dry-run first. Images only after text works.
+   Staged, each stage needs the user's OK before the next:
+   A (DONE) pixelbar/frames.py + `--dry-run`, byte-exact vs captures
+     (python -m unittest discover -s tests -t .). No device access exists in code.
+   B (not started) replay tool: send only the captured "A" frame, unmodified,
+     with the user present watching the screen.
+   C (not started) after B succeeds: send self-built AB, ABC.
 Update this status list as steps finish.

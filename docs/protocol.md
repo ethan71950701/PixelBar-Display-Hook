@@ -182,10 +182,9 @@ three captures besides the already known `e7`, `77`, `6a`, `ee`.
 | 04 | `ABC` | `00 03 41 42 43` | `00`, count 3, `41 42 43` |
 
 - Payload = `00` + count byte + the text bytes. Confirmed for ASCII.
-- Encoding: single bytes `41 42 43`, so NOT UTF-16 (confirmed). It is
-  ASCII-compatible; UTF-8 is a guess (the device name in cmd `c9` is UTF-8).
-- Not known: whether the count is bytes or characters, and the maximum length
-  (they are equal for ASCII). Needs a capture with CJK text, e.g. `你好`.
+- Encoding: single bytes `41 42 43`, so NOT UTF-16 (confirmed). RESOLVED in
+  capture 07: the encoding is UTF-8 and the count is a BYTE count (below).
+- Maximum text length: unknown.
 - No IN reply to `e8` was seen (confirmed in these captures); the app confirms
   with `e7` (below). The first `00` byte is unknown (index/slot? guessed).
 - Read back, cmd `e7` with payload `00`: reply `00 10 32 <count> <text>` (e.g.
@@ -203,7 +202,7 @@ three captures besides the already known `e7`, `77`, `6a`, `ee`.
 - Time sync `77` was resent in capture 04 (`07ea 0a 19 0f 32 12 00 01` =
   2026-10-25 15:50:18) and is answered with `01`.
 
-### Colour (capture 05) - strong guess, not confirmed
+### Colour (capture 05) - first sample; confirmed by captures 08/09 below
 
 Only frame pair in the file:
 
@@ -219,8 +218,8 @@ Only frame pair in the file:
   effect or colour slot).
 - The IN reply echoes the 4 bytes then `00 00 ff ff ff`; meaning unknown
   (possibly another colour = white).
-- Not confirmed because the exact colour the user picked was not recorded and
-  there is only one colour sample. A pure red / green capture would settle it.
+- At this point it was only a guess because the picked colour was not
+  recorded; captures 08 and 09 (known hex values) settled the RGB order.
 
 ### Replug (capture 06)
 
@@ -228,12 +227,104 @@ After the replug the app repeats the same startup queries as capture 01
 (`d8 c9 c8 c6 65 66 d5 68 6a ee 87`), all with identical replies, so the device
 info is stable (confirmed). `ee` reply: `002799ff00020001ff010000`.
 
+## Captures 07-09 (2026-10-25)
+
+`usb-07-text-nihao` (text `你好`; the user confirmed by photo that the screen
+showed it correctly, so the device has its own Chinese font), `usb-08-color-red`
+(TempoHub hex `#330200`), `usb-09-color-green` (TempoHub hex `#003407`). Speaker
+was device address 11 (VID 0x2D99). All frames: checksum OK. Nothing was sent
+to the device.
+
+### Text encoding and count - confirmed
+
+    OUT e8  payload 00 06 e4 bd a0 e5 a5 bd
+
+| Text | Chars | UTF-8 bytes | count byte | evidence |
+|---|---|---|---|---|
+| `A`, `AB`, `ABC` | 1, 2, 3 | 1, 2, 3 | 1, 2, 3 | captures 02-04 |
+| `你好` | 2 | 6 | **6** | capture 07 |
+
+- `e4 bd a0` = 你 and `e5 a5 bd` = 好 in UTF-8 (not GBK `c4 e3 ba c3`, not
+  UTF-16 `4f 60 59 7d`): encoding is **UTF-8** (confirmed).
+- The count byte is the **byte length** of the UTF-8 text, not the number of
+  characters (2 characters gave 6) (confirmed). The frame length field is
+  therefore `2 + byte_count`.
+- The `e7` read-back repeats it: `00 10 32 06 e4bda0e5a5bd`.
+- The leading `00` of the `e8` payload was `00` in all 4 samples (A, AB, ABC,
+  你好). No sample ever differed, so its meaning is **unknown** (slot / text
+  index / flag - only guesses, none supported).
+- Maximum length: still unknown (longest sample 6 bytes).
+
+### Colour `ef` - confirmed RGB order, meaning of `03` unknown
+
+| Capture | TempoHub hex | `ef` OUT payload | reading |
+|---|---|---|---|
+| 05 | not recorded | `03 27 99 ff` | |
+| 08 | `#330200` | `03 33 02 00` | `33 02 00` = R G B exactly as the hex (confirmed) |
+| 09 | `#003407` | `03 00 33 07` | R=00, G=**33**, B=07 |
+
+- Order is R, G, B, the same as the hex string (confirmed with `#330200`,
+  which cannot be read any other way).
+- DISCREPANCY: the user's hex for the green was `#003407` but the bytes sent
+  are `00 33 07` (green 0x33, not 0x34). One count lower; cause unknown. Could
+  be TempoHub rounding when it converts from its colour picker, or a misread
+  hex. The device receives `33`. Not resolved - note for the sender: use the
+  exact bytes.
+- The values are dark (max 0x33 of 0xFF), but they are sent as-is; the app
+  does not seem to scale them. (Capture 05 used a bright blue, `ff` blue.)
+- The IN reply is the same 4 bytes echoed, then `00 00 ff ff ff`, in all 4
+  samples (05, 08, 09 and the first one) - constant, meaning unknown.
+- The leading `03` was `03` in all 3 colour captures. No variation, so its
+  meaning is **unknown** (guesses such as text colour / zone are not
+  supported by any data). Only changing the screen element in TempoHub (e.g.
+  background colour, if there is one) while capturing would show whether `03`
+  changes.
+
+### Status reply `ee` (12 bytes) - what changes
+
+Reply layout `00 | C1 C2 C3 | 00 | S5 | 00 | S7 | ff 01 00 00` (offsets 1-3 and 5, 7 vary):
+
+| Where seen | bytes 1-3 | byte 5 | byte 7 |
+|---|---|---|---|
+| 01, 02 before the first `e8` | `25 92 ff` | `01` | `00` |
+| 02 after `e8 "A"`, 03 `AB`, 04 `ABC` | `25 92 ff` | `02` | `01` |
+| 06 (replug), 07 `你好` | `27 99 ff` | `02` | `01` |
+
+- Bytes 1-3 changed once, between capture 04 and 06, i.e. across capture 05
+  where the colour was changed to `27 99 ff`. They then equal the `ef`
+  payload colour bytes (confirmed for that one change). In 08/09 no `ee` was
+  captured after the colour change, so the mirror is evidenced by one sample
+  only (strong guess, not confirmed).
+- Bytes 5 and 7 changed from `01/00` to `02/01` when the first `e8` was sent
+  (capture 02) and stayed at `02/01` for A, AB, ABC and 你好. They do not
+  depend on the text content or length (confirmed). Meaning unknown (guess:
+  a mode flag, "custom text active").
+- The device pushes an `ee` status reply by itself right after an `e8`,
+  without an `ee` request (seen in 02 and 07) (confirmed).
+- Time sync `77` is repeated by the app in captures 04 and 08; the device
+  sends an unsolicited `77` with payload `02` just before it (08) (confirmed;
+  meaning of `02` unknown).
+
+### Is there any bitmap / pixel command? - not so far
+
+Across all 9 captures (123 frames) there are 19 distinct command bytes:
+`65 66 68 6a 77 84 86 87 c6 c8 c9 d5 d7 d8 e7 e8 ee ef f0`. The longest
+payload is 44 bytes (`6a` reply) and no transfer spans several frames. No
+command carries what looks like pixel data: `6a` is a fixed config-like table
+(identical in every capture), `d8`/`c9`/`c8`/`c6`/`65`... are device-info
+queries, `e8`/`e7` are text, `ef` is colour. No image upload was captured, so
+an image command is simply not seen yet (confirmed for these captures). An
+image would need many frames or the other vendor HID channel (usage page
+0xFF13, Report IDs 0x06/0x07, unused so far) - that is a guess.
+
 ### Can the text module be written?
 
-Yes for an ASCII-only first version, **dry-run only** (project rule: nothing is
-sent until a `--dry-run` frame equals the captured bytes). The frame builder
-reproduces the captured `e8` frames byte-exact for `A`, `AB`, `ABC`.
-Open items before real sending: CJK/UTF-8 and the count semantics, colour
-(`ef`) meaning, the extra `00` byte, whether other state (`ee` bytes 5/7) must
-be set for the text to be shown, and which hidapi path maps to the 0xFF14
-collection.
+Yes, dry-run only first (project rule: nothing is sent until a `--dry-run`
+frame equals the captured bytes). The frame builder reproduces all 123
+captured frames byte-exact, including padding. The text frame is fully
+described for UTF-8 text with the leading `00`, the colour frame for RGB
+with the leading `03`. Open before real sending: meaning of the `00` and `03`
+bytes (use the captured values), the maximum text length, whether anything
+else is required for the text to be shown in a given colour (not seen:
+`e8` and `ef` were captured separately), and which hidapi path maps to the
+0xFF14 collection.
