@@ -879,6 +879,88 @@ six captures:
   not known either; the data are about 1-2 KB per upload, and TempoHub repeats
   the whole upload every time a scene is clicked.
 
+## Character display tests (live, via TempoHub) (2026-10-25)
+
+Status of every line below: 已确认（本次实机测试，经 TempoHub 输入并目视）
+(confirmed: typed into TempoHub and seen on the speaker's screen). Nothing was
+sent by our code in these tests, and nothing was sent to the device while
+writing this section. The results are the user's, with no inference added.
+
+| Characters | Result |
+|---|---|
+| Arrows `←` `↑` `→` `↓` `↖` `↗` `↘` `↙` | all eight displayed |
+| `°` | displayed normally |
+| `℃` | displayed normally |
+| `●` | displayed normally |
+| `■` | displayed normally |
+| `▲` | displayed normally |
+| `♥` | rejected by the software (TempoHub) |
+| `♪` | rejected by the software (TempoHub) |
+| `★` | rejected by the software (TempoHub) |
+| Box-drawing `─│┌┐└┘├┤┬┴┼═║╔╗╚╝` | displayed, but with gaps between characters: they do not join into continuous lines |
+| `□` `○` `△` `▽` `▼` `◆` `◇` `◎` `☆` | not tested |
+
+## Design principles for the sending CLI
+
+- Only send text made of characters that were actually seen to display. The
+  tested set so far: ASCII letters, digits, space and `!` (only some ASCII
+  punctuation was tried), Chinese characters (`你好`, and the scene text seen in
+  uploads), and the symbols in the table above that displayed (the arrows,
+  `°`, `℃`, `●`, `■`, `▲`). Everything else must be rejected by our code
+  BEFORE any frame is built or sent; do not rely on TempoHub or the speaker to
+  block it. Keep the allow-list as an explicit table in code, with the test
+  status of each entry, and extend it only after a live test. Box-drawing
+  characters would display but not as joined lines, so they should not be used
+  to draw.
+- One frame per action; no loops; stop at the first unexpected reply; text
+  length limits as in "Live length tests".
+
+## Scene upload builder, stage 1 (dry run only) (2026-10-25)
+
+`pixelbar/upload.py` builds the frames of an upload; it has no path that opens
+or writes a device, imports neither hidapi nor `pixelbar.device`, and its
+command line (`python -m pixelbar.upload`) refuses to run without `--dry-run`.
+Nothing was sent to the device.
+
+- Input: image data (1024 bytes per 256x32 image, vertical bytes, least
+  significant bit on top; `pack_pixels` / `unpack_pixels` convert from and to
+  rows of 0/1), the record header parameters `T` and `XX XX`, and the bytes of
+  the `ef` frame (RGB and `p7`; `p6` is set equal to `T`, as in the captures).
+- Output: the OUT frames in capture order: one `ef` frame, then the `17` start
+  frame, the data frames (50 bytes each), the end frame. No `ef` frame follows
+  the upload, because none was seen after it. `expected_replies` gives the
+  replies TempoHub received (the `ef` echo, ready `00 01 00 32`, one `00 03
+  seq` per chunk but the last, done `00 05`; all with tag `bb`).
+- Verified (unit tests, test data are hex text in
+  `tests/fixtures/captured_uploads.json`, no .pcap or image file is read): the
+  builder rebuilt the complete OUT sequence of captures 20 (25 frames), 21 (46
+  frames) and 23 (25 frames) byte for byte from the image data and the header
+  parameters, and the expected replies equal the captured IN frames. That
+  confirms the layout of the start, data and end frames, the record header
+  layout, the size field and the chunking for these three; it does not
+  confirm the meaning of the unknown fields below.
+
+## Unknown fields in the scene upload, and the risk of changing them
+
+"Risk" lines are guesses about what could go wrong; none was tested. The
+builder takes these values as inputs; until their meaning is known, a real
+upload should only repeat the captured values.
+
+| Field | Confirmed | Not known | Risk if changed (guess) |
+|---|---|---|---|
+| Record header `T` (`02`, `03`, `04`) | same in every record of an upload; equals `ef` byte `p6` in captures 20, 21, 22, 23; different per scene | what it means (type, category, slot?) | the speaker may refuse the upload, or file the image under another scene, or overwrite another scene's data; we do not know whether the speaker keys scenes on it |
+| Record header `XX XX` (`0064` in 20, `0030` in 21 and 22, `ffff` in 23) | same in every record of an upload; the same value for the same data (21, 22) | what it means; whether it is checked against the data | if it is something like a frame delay, a wrong value changes how a 2-image scene plays or hides it; if it is a check value, a wrong one may get the upload refused. Only three different values were seen, so a check value cannot be excluded (a guess that it is not one: they look like round numbers) |
+| `ef` frame `sel` `01`, `p4` `00`, trailing `ff` | constant in captures 20-25 | meaning | the speaker may ignore or reject the frame |
+| `ef` frame `p5` (`01` here, `02` in text mode) | `01` in all six scene captures; `02` in every text-mode frame | that it is a mode number (a guess) | selecting the wrong screen mode could leave the display in text mode |
+| `ef` frame `p6` | equals `T` in all uploads; `00` and `08` for clock and spectrum (no upload) | its meaning (category? guess) | selects a scene kind; a wrong value may show another scene or a built-in one |
+| `ef` frame `p7` (`21`, `09`, `04`, and `00` for clock and spectrum) | differs per scene | its meaning (item number? guess) | may address a specific stored scene; a wrong value may replace or select another scene |
+| `ef` frame RGB (`33 66 99` in all six) | equals the text colour in force at the time | whether the speaker applies the RGB of this frame | if it does, a different RGB would recolour the text; if our current colour differs from the captured one, replaying the captured frame could change the text colour |
+| `17` start payload, leading `00 00` | constant | meaning (upload type or slot?) | the speaker may refuse or misfile the upload |
+| `17` total size | equals records x 133 (1064 = 8 x 133, 2128 = 16 x 133); counts the headers | what the speaker does with a wrong size | a mismatch may make it refuse, wait for more data, or keep a truncated scene |
+| Chunk size 50 | announced by the speaker in its ready reply (`00 32`) | whether it varies by model or firmware | a real upload should read it from the ready reply and stop if it differs from 50 |
+| Aborted upload (no end frame, a chunk missing or not acknowledged) | never happened in the captures | what state the speaker is left in | a partial or damaged scene, or a speaker waiting for the rest of the upload |
+| Persistence and flash | the speaker answered start and end frames after about 0.1-0.2 s (guess: it stores something) | whether a scene is stored on the device, whether the upload writes flash, how often it may | repeated uploads might wear the flash; a stored scene may be replaced |
+
 ## Unknowns (open questions, 2026-10-25)
 
 Things that are NOT known. Nothing below is a finding; where there is a hint

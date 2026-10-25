@@ -62,6 +62,13 @@ Workflow and status:
      per-chunk acks; clock/spectrum scenes upload nothing; no checksum or
      encryption seen beyond the frame checksum. NOT in the CLI; nothing sent.
      See "Scene uploads" in docs/protocol.md and tools/analyze_upload.py.
+   Upload builder stage 1 DONE (dry run only): pixelbar/upload.py rebuilds the
+     whole OUT sequence of captures 20, 21, 23 byte-exact (tests/test_upload.py,
+     hex-text fixture). It has no device path. Real uploads (stage 2: replay
+     capture 20 unmodified) need the checks listed in docs/protocol.md and the
+     user's explicit approval; the unknown header/ef fields are never varied.
+   Characters: only send text from the tested allow-list (see "Design
+     principles for the sending CLI" in docs/protocol.md).
    D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar
      text "..." [--color RRGGBB] | color RRGGBB`; default is a dry run, --send
      writes after asking "TempoHub closed?" (or --yes-i-closed-tempohub),
