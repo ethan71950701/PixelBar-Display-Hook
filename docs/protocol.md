@@ -1764,6 +1764,88 @@ animation), it loops, nothing odd. Not verified: whether the first two pictures
 were black as planned, and whether the silhouettes were recognisable; the
 number 4 in 3 and 4 is the user's own numbering of the questions.
 
+### Playback speed measured from phone videos (2026-10-25)
+
+Method: the user filmed the speaker's screen (phone, 120 fps slow motion shown
+at 0.25x; the video files hold about 29 frames per second, so file time / 4 =
+real time; the user's statement, not checked otherwise) and `tools/screen_timing.py
+--crop ... --bright 160 --slow 4` found the moments the lit pixels change (the
+camera's own frame is about 8 ms in real time). Measured, in real seconds:
+
+| Upload | Pictures | Time per picture | One loop |
+|---|---|---|---|
+| Video frames (upload 13, same 20 pictures as upload 9) | 20 | 0.198 s (median of 31 gaps, 0.194-0.211) | about 4.0 s (20 x 0.2; the loop itself was not seen twice in that clip) |
+| Generated test animation (upload 14) | 7 | about 0.2 s | 1.40 s (successive loops 5.60-5.64 s in file time, 7 loops) |
+| Generated test animation (upload 15) | 2 | about 0.20 s (change every 0.81 s in file time) | about 0.4 s |
+
+So the speaker showed every picture for the same time, about 0.2 s (5 pictures
+per second), for 2, 7 and 20 pictures: the loop time grows with the number of
+pictures, it is not a fixed total. The impression that "more pictures go
+faster" (user, by eye) is not supported by these three measurements. Each change
+also showed up as a second, smaller event a few tens of milliseconds later
+(0.017-0.034 s real) in all three videos; that is probably the camera or the
+screen refresh, not a second picture change (not verified). The first seconds
+of the video of upload 14 were not slow motion (the user said they looked the
+same); the loop measurement used the clean part.
+
+#### TempoHub's own two-picture scenes (the user clicked them in TempoHub and filmed the screen, 120 fps at 0.25x)
+
+The user named the files "上岸" (`20261025_225728.mp4`) and nothing else; I
+told them apart by what is on the screen (the screen content in the video:
+上岸 with a cat at a laptop, and 自愿学习 with a cup and stripes). The two
+scenes are the ones of captures 21/22 (`XX XX` = `0030`) and 31 (`XX XX` = `0064`),
+assuming TempoHub's list still holds the same scenes (the pictures match the
+descriptions of the captures; not verified byte for byte).
+
+| Scene | `XX XX` of its capture | Measured time per picture (real) | Method |
+|---|---|---|---|
+| 自愿学习 (`20261025_225741.mp4`) | `0064` = 100 | about 0.20 s (a change every 0.71-0.81 s in file time, 30 changes) | changes of the lit pixels, as above |
+| 上岸 (`20261025_225728.mp4`) | `0030` = 48 | about 0.09 s (dips of the brightness every 0.34-0.37 s in file time, mean 0.357 s over the clean stretch) | the two pictures differ in few pixels; the changes were found as short dips of the total brightness in the cat region, not as a change of the picture |
+
+So the scene with the smaller `XX XX` changed pictures about 2.2 times faster
+(0.0900 s against 0.2025 s). The simple guess "time per picture = `XX XX` x
+2 ms" gives 0.200 s and 0.096 s: the first fits (0.2025 s), the second is about
+6% faster than predicted. The camera's frame is 8 ms real, but the figure is a
+mean over many changes, so 6% is probably real; the two scenes were measured
+with different methods, so a small systematic difference between them is
+possible. Evidence for "`XX XX` sets the time per picture": consistent, not
+proven; the exact unit is not settled; only two values (and the generated
+animations, all `0064`) were measured, in scenes of different content, and
+other fields (`T`, `p6`, `p7`, the scene itself) differ between the scenes too.
+`ffff` (one-picture cat scenes) was not measured.
+
+#### The experiment: only `XX XX` changed (upload 17, 2026-10-25/26, user-approved)
+
+At the user's request (「可以，只把 XX XX 改成 0030，用 2 張測試動畫上傳」) the
+same 2-picture test animation as upload 15 was uploaded again with exactly one
+change: the record header `XX XX` from `0064` to `0030` (`animation --frames 2
+--xx 30`; `T`, the `ef` frame and every other byte as before; the plan checks
+passed, the upload hash covers bitmap and `XX XX`). Upload 16 of the same plan
+failed with `OSError: read error` while reading a reply, because the user had
+accidentally switched the computer off (user's explanation); the attempt
+counted. Upload 17 then went through: 46/46 frames, 45 replies, all matched,
+2.70 s. The user filmed the screen (`20261026_073208.mp4`, 120 fps at 0.25x,
+21.9 s file time, two pictures showing the block and the digit 2).
+
+Measured (same method as above, real seconds = file time / 4): the pictures
+change every 0.36 s of file time (59 changes from 0.77 s to 21.69 s, mean
+0.3607 s), that is **0.0902 s per picture** (about 11 pictures per second),
+against 0.2025 s per picture for the same animation with `0064`. The
+TempoHub scene 上岸 (`0030`) gave 0.0900 s (see above). So, with a single field
+changed and nothing else, `XX XX` = `0064` gave 0.2025 s and `0030` gave 0.0902
+s per picture: **`XX XX` sets the time per picture (confirmed by this
+measurement, two values)**. The relation between the two values: 100 -> 202.5
+ms, 48 -> 90.2 ms; a straight line through them would be about 2.16 ms per unit
+minus 13.6 ms, simple proportionality (2 ms per unit) gives 200 and 96 ms and
+is about 6% off at 48; with only two points the exact formula (and whether
+other values work, how fast or slow they can go, what `ffff` does) is not
+known. Only `0030` and `0064` have been used, the two values TempoHub itself
+used.
+
+Not known: the formula for other values; whether very small or large values are
+safe for the speaker; what `ffff` means. Using any other value of an unknown
+field remains forbidden without the user's approval.
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The

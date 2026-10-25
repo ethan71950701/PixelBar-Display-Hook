@@ -327,6 +327,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urlparse(self.path)
         if not self._host_ok() or not self._token_ok(self.headers.get("X-Token")):
+            try:                                   # read a small body first: closing on unread data can reset the client's connection
+                self.rfile.read(min(int(self.headers.get("Content-Length", "0")), 65536))
+            except (ValueError, OSError):
+                pass
             return self._reply(403, {"error": "forbidden"})
         try:
             length = int(self.headers.get("Content-Length", "0"))

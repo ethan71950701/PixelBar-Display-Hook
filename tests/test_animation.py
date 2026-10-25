@@ -110,6 +110,40 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(all(i < 25 for i in diffs))
 
 
+class XxTests(unittest.TestCase):
+    def test_a_changed_xx_xx_changes_only_the_record_headers(self):
+        bitmap = bitmap_of(2)
+        old, _ = upload_replay.load_plan(image=bitmap)
+        new, checks = upload_replay.load_plan(image=bitmap, xx=0x0030)
+        self.assertTrue(all(checks.values()), {k: v for k, v in checks.items() if not v})
+        self.assertEqual(len(old), len(new))
+        stream = b"".join(s[1][10:6 + int.from_bytes(s[1][4:6], "big") - 0] for s in new[2:-2])
+        self.assertIn(bytes([2, 0, 0, 0x00, 0x30]), stream)               # the first record header: T 00 00 XX XX
+        self.assertNotIn(bytes([2, 0, 0, 0x00, 0x64]), stream)
+        self.assertEqual(old[0][1], new[0][1])                            # ef frame unchanged
+        self.assertEqual(old[1][1], new[1][1])                            # start frame (same size) unchanged
+        self.assertEqual(old[-1][1], new[-1][1])                          # end frame unchanged
+        self.assertTrue(any(a[1] != b[1] for a, b in zip(old, new)))
+        self.assertTrue(any("0x0030" in k for k in checks))
+
+    def test_only_values_tempohub_used_and_only_for_several_pictures(self):
+        for bad in (0x0000, 0x0031, 0xFFFF, 0x0100):
+            with self.subTest(xx=bad), self.assertRaises(ValueError):
+                upload_replay.load_plan(image=bitmap_of(2), xx=bad)
+        with self.assertRaises(ValueError):
+            upload_replay.load_plan(image=bitmap_of(1), xx=0x0030)
+        with self.assertRaises(ValueError):
+            upload_replay.load_plan(xx=0x0030)
+        steps, checks = upload_replay.load_plan(image=bitmap_of(2), xx=0x0064)
+        self.assertTrue(all(checks.values()))
+
+    def test_the_identity_hash_depends_on_xx_xx(self):
+        bitmap = bitmap_of(2)
+        self.assertEqual(image_send.identity_sha256(bitmap), image_send.bitmap_sha256(bitmap))
+        self.assertNotEqual(image_send.identity_sha256(bitmap, 0x0030), image_send.bitmap_sha256(bitmap))
+        self.assertNotEqual(image_send.identity_sha256(bitmap, 0x0030), image_send.identity_sha256(bitmap, 0x0064))
+
+
 class ExchangeTests(unittest.TestCase):
     def script(self, steps):
         return {i: [s[2]] for i, s in enumerate(steps) if s[2] is not None}
@@ -197,6 +231,17 @@ class CliTests(unittest.TestCase):
         with open(os.path.join(self.dir, sheets[0]), "rb") as fh:
             width, height, _ = image.decode_png(fh.read())
         self.assertEqual((width, height), (256 * 3, (7 * 32 + 6 * 3) * 3))
+
+    def test_xx_option_dry_run_and_refusals(self):
+        with self.forbid_the_device():
+            text = self.run_cli("animation", "--frames", "2", "--xx", "30", "--preview-dir", self.dir)
+        self.assertIn("XX XX is changed from the captured 0x0064 to 0x0030", text)
+        self.assertNotIn("[FAIL]", text)
+        self.assertIn("record header XX XX is the requested 0x0030", text)
+        for bad, frames_ in (("ffff", "2"), ("30", "1")):
+            with self.subTest(xx=bad), self.assertRaises(SystemExit) as ctx, contextlib.redirect_stdout(io.StringIO()):
+                cli.main(["animation", "--frames", frames_, "--xx", bad, "--preview-dir", self.dir])
+            self.assertIn("error", str(ctx.exception))
 
     def test_the_count_must_be_1_to_20(self):
         for bad in ("0", "21"):

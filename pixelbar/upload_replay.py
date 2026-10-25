@@ -108,23 +108,34 @@ def _multi_image_checks(steps, built, image, c, ef, captured_out):
         "the ef frame and the end frame equal the TempoHub frames of capture 20": built[0] == captured_out[0] and built[-1] == captured_out[-1],
         f"the start frame carries the new total size {records * record} and differs from capture 20's start frame in nothing else": (
             int.from_bytes(built[1][8:12], "big") == records * record and all(k in (8, 9, 10, 11, 12) for k in start_diff)),
-        "record headers: T and XX XX are capture 20's, the index runs 0.. without gaps": headers_ok,
+        ("record headers: T and XX XX are capture 20's, the index runs 0.. without gaps" if c["xx"] == 0x0064 else
+         f"record headers: T is capture 20's, XX XX is the requested 0x{c['xx']:04x}, the index runs 0.. without gaps"): headers_ok,
         "the data frames carry exactly the image data, chunk numbers run 0.. without gaps": data == image and seqs == list(range(chunks)),
         "expected replies: ef echo, ready (chunk size 50), one acknowledgement per chunk but the last, done": [s[2] for s in steps if s[2] is not None] == wanted,
     }
 
 
-def load_plan(fixture=FIXTURE, pixel=None, image=None):
+ALLOWED_XX = (0x0030, 0x0064)          # the values TempoHub itself used for scenes with pictures (0xffff, one picture, not allowed)
+
+
+def load_plan(fixture=FIXTURE, pixel=None, image=None, xx=None):
     """Return (steps, checks): steps = [(label, OUT frame, expected reply or None)].
 
     pixel=(x, y) switches that one pixel on in the image data (stage 3); image=<1024 bytes>
     replaces the whole image data. Everything else, including every unknown field, stays as
-    captured.
+    captured. xx=<0x0030 or 0x0064> (several images only) is the one exception: it replaces the
+    record header XX XX, which changes how long the speaker shows each picture (measured).
     """
     if pixel is not None and image is not None:
         raise ValueError("give either a pixel or a whole image, not both")
     with open(fixture, encoding="utf-8") as fh:
         c = json.load(fh)[KEY]
+    if xx is not None:
+        if xx not in ALLOWED_XX:
+            raise ValueError(f"XX XX may only be one of {[hex(v) for v in ALLOWED_XX]} (values TempoHub used)")
+        if image is None or len(image) <= upload.IMAGE_BYTES:
+            raise ValueError("a different XX XX is only for uploads of several pictures")
+        c = {**c, "xx": xx}
     ef = bytes.fromhex(c["ef_payload"])
     captured_image = bytes.fromhex(c["image_hex"])
     if image is not None:
@@ -187,7 +198,8 @@ def load_plan(fixture=FIXTURE, pixel=None, image=None):
         **change_checks,
         **({} if many else {"expected replies equal the speaker's replies in capture 20": expected == [bytes.fromhex(h) for h in c["in"]]}),
         "record header T is the captured 0x02": c["type"] == 0x02,
-        "record header XX XX is the captured 0x0064": c["xx"] == 0x0064,
+        **({"record header XX XX is the captured 0x0064": c["xx"] == 0x0064} if xx is None else
+           {f"record header XX XX is the requested 0x{xx:04x}, the only unknown field that differs from capture 20 (T, ef frame: captured)": c["xx"] == xx}),
         "ef frame payload is the captured 01 33 66 99 00 01 02 21 ff": ef.hex() == "0133669900010221ff",
         "every reply expectation is used once": sum(1 for s in steps if s[2] is not None) == len(expected),
         "all frames are 64 bytes": all(len(s[1]) == 64 for s in steps),

@@ -126,10 +126,12 @@ def cmd_image(args):
     finish_upload(args, steps, checks, bitmap, sha)
 
 
-def finish_upload(args, steps, checks, bitmap, sha):
+def finish_upload(args, steps, checks, bitmap, sha, xx=None):
     """Shared by `image` and `animation`: print the checks and the limits, then stop (dry run) or upload once."""
     if args.expect_sha is not None:
-        checks["--expect-sha matches the bitmap that would be uploaded"] = image.sha_matches(bitmap, args.expect_sha)
+        checks["--expect-sha matches the bitmap that would be uploaded"] = (
+            image.sha_matches(bitmap, args.expect_sha) if xx is None else
+            len(args.expect_sha) >= 12 and sha.startswith(args.expect_sha.lower()))
     print("checks (the unknown fields keep capture 20's values):")
     for name, ok in checks.items():
         print(f"  [{'OK' if ok else 'FAIL'}] {name}")
@@ -162,7 +164,7 @@ def finish_upload(args, steps, checks, bitmap, sha):
         sys.exit("plan verification failed (a check above says FAIL); nothing was sent")
     confirm_tempohub_closed(args)
     try:
-        result = image_send.send_upload(steps, bitmap, device.open_device)
+        result = image_send.send_upload(steps, bitmap, device.open_device, xx=xx)
     except (image_send.UploadRefused, device.DeviceError, limits.LimitsError, RuntimeError) as err:
         sys.exit(f"error: {err}; nothing was sent")
     print(f"summary: written {result['written']}/{len(steps)}, replies matched {result['matched']}, "
@@ -180,7 +182,11 @@ def cmd_animation(args):
         sys.exit(f"error: --frames is between 1 and {testanim.FRAMES}")
     pictures = testanim.frames(args.frames)
     bitmap = b"".join(image.pack_pixels(rows) for rows in pictures)
-    sha = image_send.bitmap_sha256(bitmap)
+    xx = None if args.xx is None else args.xx
+    sha = image_send.identity_sha256(bitmap, xx)
+    if xx is not None:
+        print(f"NOTE: record header XX XX is changed from the captured 0x0064 to 0x{xx:04x} (the only change; the speed of the pictures is "
+              f"expected to change); the hash below covers the bitmap and XX XX")
     print(f"generated test animation, the first {args.frames} of {testanim.FRAMES} pictures (a {testanim.BLOCK_W}x{testanim.BLOCK_H} block moves "
           f"from the left to the right, the picture number is drawn at the top left); {args.frames * upload.IMAGE_BYTES} bytes of image data; "
           f"bitmap sha256 {sha[:16]}")
@@ -195,11 +201,15 @@ def cmd_animation(args):
         fh.write(image.stack_png(pictures, 3))
     print(f"wrote the 3x contact sheet of all {args.frames} pictures (top to bottom, in the order they are uploaded): {out}")
 
-    steps, checks = upload_replay.load_plan(image=bitmap)
+    try:
+        steps, checks = upload_replay.load_plan(image=bitmap, xx=xx)
+    except ValueError as err:
+        sys.exit(f"error: {err}")
     chunks = len(steps) - 3
     print(f"\nupload sequence: {len(steps)} frames (1 ef, 1 start, {chunks} data, 1 end), declared size {args.frames * 8 * 133} bytes, "
-          f"{args.frames * 8} records of 133 bytes; ef, end and the unknown fields are capture 20's, the start frame differs from capture 20's only in the size")
-    finish_upload(args, steps, checks, bitmap, sha)
+          f"{args.frames * 8} records of 133 bytes; ef, end and the unknown fields are capture 20's"
+          f"{'' if xx is None else ' except XX XX'}, the start frame differs from capture 20's only in the size")
+    finish_upload(args, steps, checks, bitmap, sha, xx)
 
 
 def cmd_slideshow(args):
@@ -243,6 +253,8 @@ def main(argv=None):
     an = sub.add_parser("animation", help="a generated test animation of N pictures in one upload (dry run by default)")
     an.add_argument("--frames", type=int, required=True, help=f"how many pictures, 1 to {testanim.FRAMES} (the first N of the 20)")
     an.add_argument("--preview-dir", default=PREVIEW_DIR, help=f"where the contact sheet PNG goes (default {PREVIEW_DIR}; keep it outside the repository)")
+    an.add_argument("--xx", type=lambda v: int(v, 16), default=None, metavar="HEX",
+                    help="record header XX XX in hex, 0030 or 0064 (default: the captured 0064); the speed experiment, the only unknown field that may differ")
     an.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; required with --send")
     add_send_options(an)
     sl = sub.add_parser("slideshow", help="1 to 20 of your own pictures in one upload, in the order given (dry run by default)")

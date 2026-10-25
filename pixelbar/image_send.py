@@ -19,8 +19,13 @@ def bitmap_sha256(bitmap):
     return hashlib.sha256(bitmap).hexdigest()
 
 
-def send_upload(steps, bitmap, open_device, state_dir=None, day=None, log=print):
-    sha = bitmap_sha256(bitmap)
+def identity_sha256(bitmap, xx=None):
+    """What the limits and the log call "the same upload": the bitmap, plus XX XX when it is not the captured one."""
+    return bitmap_sha256(bitmap if xx is None else bitmap + b"XX" + xx.to_bytes(2, "big"))
+
+
+def send_upload(steps, bitmap, open_device, state_dir=None, day=None, log=print, xx=None):
+    sha = identity_sha256(bitmap, xx)
     problems = limits.problems_for_upload(sha, state_dir, day)
     if problems:
         raise UploadRefused("; ".join(problems))
