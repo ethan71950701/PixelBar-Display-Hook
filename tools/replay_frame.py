@@ -1,9 +1,10 @@
 """Send ONE known e8 "set text" frame to the PixelBar, nothing else.
 
-Stages B and C of the plan in CLAUDE.md. Only two fixed frames can be chosen
+Stages B and C of the plan in CLAUDE.md. Only three fixed frames can be chosen
 (see ALLOWED): "A" replayed unmodified from capture usb-02-text-A (stage B),
-and "AB" built by pixelbar.frames and only sent if it equals capture
-usb-03-text-AB byte for byte (stage C). There is no way to pass other bytes.
+and "AB" / "ABC" built by pixelbar.frames and only sent if they equal captures
+usb-03-text-AB / usb-04-text-ABC byte for byte (stage C). There is no way to
+pass other bytes.
 Nothing else is sent: no handshake, no clock sync, no ee poll.
 
 Usage:
@@ -34,6 +35,7 @@ READ_TIMEOUT_MS = 2000
 ALLOWED = {
     "A": ("usb-02-text-A", "2eaaece80003000141c3"),
     "AB": ("usb-03-text-AB", "2eaaece800040002414207"),
+    "ABC": ("usb-04-text-ABC", "2eaaece8000500034142434c"),  # stage C, same rule as AB
 }
 FIXTURE = os.path.join(REPO, "tests", "fixtures", "captured_frames.json")
 
@@ -83,7 +85,7 @@ def find_device(hid):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--frame", choices=sorted(ALLOWED), default="A",
-                    help="which fixed frame: A (stage B) or AB (stage C); default A")
+                    help="which fixed frame: A (stage B), AB or ABC (stage C); default A")
     ap.add_argument("--send", action="store_true", help="really write the frame to the device")
     ap.add_argument("--yes-i-closed-tempohub", action="store_true",
                     help="required together with --send: TempoHub is closed")
