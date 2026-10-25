@@ -50,7 +50,13 @@ def _check_size(img):
         raise PrepareError(f"the picture is {w}x{h}; more than {MAX_SIDE} pixels on a side is refused")
 
 
-def open_image(path):
+def open_bytes(data):
+    """Open a picture from bytes already in memory (the browser window); same size checks as open_image."""
+    import io
+    return open_image(io.BytesIO(data), "the uploaded picture")
+
+
+def open_image(path, label=None):
     Image, _ = _pillow()
     Image.MAX_IMAGE_PIXELS = MAX_SIDE * MAX_SIDE
     img = None
@@ -65,7 +71,7 @@ def open_image(path):
     except (OSError, ValueError, Image.DecompressionBombError) as err:
         if img is not None:
             img.close()
-        raise PrepareError(f"cannot read {path}: {err}") from None
+        raise PrepareError(f"cannot read {label or path}: {err}") from None
     return img
 
 

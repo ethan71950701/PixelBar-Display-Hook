@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PixelBar 圖片上傳</title>
+<style>
+  :root { --bg:#f4f5f7; --panel:#fff; --ink:#1b1f24; --muted:#5d6670; --line:#d6dae0; --accent:#2457d6; --accent-ink:#fff;
+          --ok:#1a7f37; --bad:#c62828; --warn:#9a6700; --led-off:#15181d; --led-on:#ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171b; --panel:#1d2127; --ink:#e8eaed; --muted:#a0a8b3; --line:#343a43; --accent:#6c93ff; --accent-ink:#0b1020;
+            --ok:#4cc26b; --bad:#ff6b6b; --warn:#e3b341; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui,"Segoe UI","Microsoft JhengHei",sans-serif; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); background:var(--panel); display:flex; flex-wrap:wrap; gap:8px 24px; align-items:baseline; }
+  header h1 { margin:0; font-size:18px; }
+  header .hint { color:var(--muted); font-size:13px; }
+  main { display:grid; grid-template-columns:minmax(230px,280px) minmax(360px,1fr) minmax(280px,340px); gap:16px; padding:16px 20px; align-items:start; }
+  @media (max-width: 1000px) { main { grid-template-columns:1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  section h2 { margin:0 0 10px; font-size:15px; }
+  button { font:inherit; border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:7px; padding:6px 12px; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
+  button.small { padding:2px 8px; font-size:13px; }
+  label { display:block; margin:8px 0 2px; font-size:13px; color:var(--muted); }
+  input[type=range] { width:100%; }
+  select, input[type=number], input[type=text] { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .check { display:flex; gap:8px; align-items:center; margin:8px 0; color:var(--ink); font-size:14px; }
+  #drop { border:2px dashed var(--line); border-radius:10px; padding:14px; text-align:center; color:var(--muted); margin-bottom:10px; }
+  #drop.over { border-color:var(--accent); color:var(--ink); }
+  #list { display:flex; flex-direction:column; gap:8px; max-height:560px; overflow:auto; }
+  .card { border:2px solid var(--line); border-radius:8px; padding:6px; background:var(--bg); cursor:pointer; }
+  .card.sel { border-color:var(--accent); }
+  .card canvas, .card img { width:100%; height:auto; image-rendering:pixelated; display:block; background:var(--led-off); border-radius:4px; }
+  .card .meta { display:flex; justify-content:space-between; align-items:center; margin-top:4px; gap:4px; font-size:12px; color:var(--muted); }
+  .card .meta span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  #crop { width:100%; max-height:420px; background:#000; border-radius:8px; touch-action:none; cursor:grab; display:block; }
+  #led { width:100%; image-rendering:pixelated; border-radius:6px; background:var(--led-off); display:block; }
+  .muted { color:var(--muted); font-size:13px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  ul.checks { list-style:none; padding:0; margin:6px 0; font-size:13px; max-height:130px; overflow:auto; }
+  ul.checks li::before { content:"✓ "; color:var(--ok); } ul.checks li.fail::before { content:"✗ "; color:var(--bad); }
+  dialog { border:1px solid var(--line); border-radius:12px; padding:20px; max-width:480px; background:var(--panel); color:var(--ink); }
+  dialog::backdrop { background:rgba(0,0,0,.5); }
+  #result { white-space:pre-wrap; font:12px/1.5 ui-monospace,Consolas,monospace; background:var(--bg); border-radius:6px; padding:8px; margin-top:8px; display:none; }
+  .empty { color:var(--muted); text-align:center; padding:30px 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PixelBar 圖片上傳</h1>
+  <span class="hint">加圖片 → 決定怎麼裁切 → 看 256×32 的結果 → 按「上傳到音箱」。在你按確定之前，不會送任何東西到音箱。</span>
+</header>
+<main>
+  <section id="left">
+    <h2>圖片（上傳順序，最多 20 張）</h2>
+    <div id="drop">把圖片拖到這裡<br><button id="addBtn" type="button">或選擇檔案…</button>
+      <input id="file" type="file" accept="image/*" multiple hidden></div>
+    <div id="list"><div class="empty">還沒有圖片</div></div>
+  </section>
+
+  <section id="mid">
+    <h2>裁切</h2>
+    <div id="cropArea"><div class="empty">在左邊加入並點選一張圖片</div></div>
+    <div id="cropControls" hidden>
+      <div class="row" style="margin-top:8px">
+        <label style="margin:0">方式</label>
+        <select id="fit">
+          <option value="crop">裁切（移動／縮放框）</option>
+          <option value="contain">整張縮小置中（兩側留黑）</option>
+          <option value="stretch">拉伸壓扁到整個螢幕</option>
+        </select>
+        <button id="applyAll" class="small" type="button" title="把這張圖的方式、縮放與位置套用到清單中的每一張">套用到全部</button>
+      </div>
+      <div id="zoomBox">
+        <label>縮放：<span id="zoomVal">1.0</span>×（框越小，放大越多）</label>
+        <input id="zoom" type="range" min="1" max="8" step="0.05" value="1">
+        <div class="muted">在圖上按住拖曳移動框；滾輪縮放。螢幕是 8:1 的長條，框的形狀固定。</div>
+      </div>
+    </div>
+    <h2 style="margin-top:16px">黑白設定（全部圖片共用）</h2>
+    <div class="row">
+      <div><label>轉換方式</label>
+        <select id="mode"><option value="dither">抖動（照片、有層次）</option><option value="threshold">閾值（剪影、線條）</option></select></div>
+    </div>
+    <label>亮度門檻：<span id="thVal">128</span>（高於這個亮度的點會亮）</label>
+    <input id="threshold" type="range" min="0" max="255" value="128">
+    <div class="check"><input id="invert" type="checkbox"><label for="invert" style="margin:0;color:var(--ink)">反相（亮暗對調）</label></div>
+    <div class="check"><input id="autocontrast" type="checkbox"><label for="autocontrast" style="margin:0;color:var(--ink)">自動拉開對比</label></div>
+  </section>
+
+  <section id="right">
+    <h2>預覽（跟實際上傳的位元圖一模一樣）</h2>
+    <canvas id="led" width="768" height="96"></canvas>
+    <div class="row" style="margin-top:8px">
+      <button id="play" type="button">▶ 播放預覽</button>
+      <label style="margin:0">每張</label><input id="ms" type="number" value="200" min="50" max="3000" step="50" style="width:80px"><span class="muted">毫秒</span>
+    </div>
+    <div class="muted">播放只是電腦上的模擬；音箱實際的速度由音箱決定（之前測 20 張大約 4 秒一圈）。</div>
+    <div class="row" style="margin-top:6px"><label style="margin:0">預覽顏色</label><input id="previewColor" type="color" value="#ffffff"></div>
+
+    <h2 style="margin-top:18px">上傳</h2>
+    <div id="planBox" class="muted">加入圖片後這裡會顯示檢查結果。</div>
+    <ul id="checks" class="checks"></ul>
+    <div class="row" style="margin-top:8px">
+      <button id="send" class="primary" type="button" disabled>上傳到音箱…</button>
+    </div>
+    <div id="result"></div>
+
+    <h2 style="margin-top:18px">文字顏色</h2>
+    <div class="muted">圖片會用音箱目前的文字顏色顯示。</div>
+    <div class="row" style="margin-top:6px">
+      <input id="devColor" type="color" value="#ffffff"><button id="sendColor" type="button">設定音箱顏色…</button>
+    </div>
+  </section>
+</main>
+
+<dialog id="confirm">
+  <h2 style="margin-top:0" id="cTitle">確定要上傳？</h2>
+  <div id="cBody"></div>
+  <div class="row" style="justify-content:flex-end;margin-top:16px">
+    <button id="cNo" type="button">取消</button>
+    <button id="cYes" class="primary" type="button">確定上傳</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+const TOKEN = "__TOKEN__";
+const MAXZOOM = 8, RATIO = 8, MAX_SLIDES = 20;
+let items = [];          // {id, name, w, h, url, img, fit, zoom, cx, cy, png, rawPng, lit}
+let selected = null;
+let gen = 0, planTimer = null, planSeq = 0, lastPlan = null;
+let playTimer = null, playIdx = 0;
+const $ = id => document.getElementById(id);
+
+async function api(path, body, raw, query) {
+  const opt = {method: "POST", headers: {"X-Token": TOKEN}};
+  if (raw) { opt.body = raw; } else { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body || {}); }
+  const r = await fetch(path + (query || ""), opt);
+  const data = await r.json().catch(() => ({error: "伺服器回應無法讀取"}));
+  if (!r.ok) throw new Error(data.error || ("錯誤 " + r.status));
+  return data;
+}
+const settings = () => ({mode: $("mode").value, threshold: +$("threshold").value, invert: $("invert").checked, autocontrast: $("autocontrast").checked});
+const itemParams = it => ({id: it.id, fit: it.fit, zoom: it.zoom, cx: it.cx, cy: it.cy});
+
+// ---- adding pictures
+async function addFiles(files) {
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) continue;
+    if (items.length >= MAX_SLIDES) { alert("一次上傳最多 " + MAX_SLIDES + " 張。"); break; }
+    try {
+      const info = await api("/api/add", null, await f.arrayBuffer(), "?name=" + encodeURIComponent(f.name));
+      const url = URL.createObjectURL(f);
+      const img = new Image();
+      img.src = url;
+      await img.decode().catch(() => {});
+      items.push({id: info.id, name: info.name, w: info.width, h: info.height, url, img, fit: "crop", zoom: 1, cx: .5, cy: .5, png: null, lit: 0});
+      selected = items[items.length - 1];
+      renderList(); showSelected();
+      renderOne(selected);
+    } catch (e) { alert(f.name + "：" + e.message); }
+  }
+  schedulePlan();
+}
+$("addBtn").onclick = () => $("file").click();
+$("file").onchange = e => { addFiles([...e.target.files]); e.target.value = ""; };
+const drop = $("drop");
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => addFiles([...e.dataTransfer.files]));
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", e => e.preventDefault());
+
+// ---- list
+function renderList() {
+  const list = $("list");
+  list.textContent = "";
+  if (!items.length) { list.innerHTML = '<div class="empty">還沒有圖片</div>'; return; }
+  items.forEach((it, i) => {
+    const card = document.createElement("div");
+    card.className = "card" + (it === selected ? " sel" : "");
+    card.onclick = () => { selected = it; renderList(); showSelected(); drawLed(); };
+    const thumb = document.createElement("img");
+    if (it.png) thumb.src = it.png; else thumb.alt = "…";
+    thumb.width = 256; thumb.height = 32;
+    card.appendChild(thumb);
+    const meta = document.createElement("div"); meta.className = "meta";
+    const name = document.createElement("span"); name.textContent = (i + 1) + ". " + it.name; meta.appendChild(name);
+    const mk = (txt, title, fn, dis) => { const b = document.createElement("button"); b.className = "small"; b.textContent = txt; b.title = title; b.disabled = !!dis;
+      b.onclick = e => { e.stopPropagation(); fn(); }; meta.appendChild(b); };
+    mk("↑", "往前", () => move(i, -1), i === 0);
+    mk("↓", "往後", () => move(i, 1), i === items.length - 1);
+    mk("複製", "複製一張（可用不同裁切）", () => dup(i), items.length >= MAX_SLIDES);
+    mk("✕", "移除", () => del(i));
+    card.appendChild(meta);
+    list.appendChild(card);
+  });
+}
+function move(i, d) { const j = i + d; [items[i], items[j]] = [items[j], items[i]]; renderList(); schedulePlan(); }
+function dup(i) { const c = {...items[i]}; items.splice(i + 1, 0, c); selected = c; renderList(); showSelected(); schedulePlan(); }
+function del(i) {
+  const it = items[i]; items.splice(i, 1);
+  if (!items.some(x => x.id === it.id)) { api("/api/remove", {id: it.id}).catch(() => {}); URL.revokeObjectURL(it.url); }
+  if (selected === it) selected = items[Math.min(i, items.length - 1)] || null;
+  renderList(); showSelected(); drawLed(); schedulePlan();
+}
+
+// ---- crop editor
+const cropCanvas = document.createElement("canvas"); cropCanvas.id = "crop";
+function boxOf(it) {
+  const baseW = Math.min(it.w, RATIO * it.h);
+  let bw = Math.max(RATIO, baseW / Math.max(1, Math.min(it.zoom, MAXZOOM))); bw = Math.min(bw, baseW);
+  const bh = bw / RATIO;
+  const left = Math.min(Math.max(it.cx * it.w - bw / 2, 0), it.w - bw), top = Math.min(Math.max(it.cy * it.h - bh / 2, 0), it.h - bh);
+  return {left, top, w: bw, h: bh};
+}
+function showSelected() {
+  const area = $("cropArea");
+  if (!selected) { area.innerHTML = '<div class="empty">在左邊加入並點選一張圖片</div>'; $("cropControls").hidden = true; return; }
+  if (!area.contains(cropCanvas)) { area.textContent = ""; area.appendChild(cropCanvas); }
+  $("cropControls").hidden = false;
+  $("fit").value = selected.fit; $("zoom").value = selected.zoom; $("zoomVal").textContent = selected.zoom.toFixed(1);
+  $("zoomBox").hidden = selected.fit !== "crop";
+  drawCrop();
+}
+function drawCrop() {
+  const it = selected; if (!it) return;
+  const maxW = Math.max(300, Math.min(900, $("mid").clientWidth - 30)), maxH = 420;
+  const s = Math.min(maxW / it.w, maxH / it.h, 1.5);
+  cropCanvas.width = Math.max(1, Math.round(it.w * s)); cropCanvas.height = Math.max(1, Math.round(it.h * s));
+  cropCanvas.style.width = cropCanvas.width + "px"; cropCanvas.style.height = cropCanvas.height + "px";
+  const c = cropCanvas.getContext("2d");
+  c.drawImage(it.img, 0, 0, cropCanvas.width, cropCanvas.height);
+  if (it.fit !== "crop") return;
+  const b = boxOf(it), x = b.left * s, y = b.top * s, w = b.w * s, h = b.h * s;
+  c.fillStyle = "rgba(0,0,0,.55)";
+  c.fillRect(0, 0, cropCanvas.width, y); c.fillRect(0, y + h, cropCanvas.width, cropCanvas.height - y - h);
+  c.fillRect(0, y, x, h); c.fillRect(x + w, y, cropCanvas.width - x - w, h);
+  c.strokeStyle = "#ffd33d"; c.lineWidth = 2; c.strokeRect(x + 1, y + 1, Math.max(2, w - 2), Math.max(2, h - 2));
+  cropCanvas._scale = s;
+}
+let drag = null;
+cropCanvas.addEventListener("pointerdown", e => { if (!selected || selected.fit !== "crop") return; cropCanvas.setPointerCapture(e.pointerId);
+  drag = {x: e.clientX, y: e.clientY, cx: selected.cx, cy: selected.cy}; cropCanvas.style.cursor = "grabbing"; });
+cropCanvas.addEventListener("pointermove", e => { if (!drag) return;
+  const k = cropCanvas.width / cropCanvas.getBoundingClientRect().width, s = cropCanvas._scale || 1;
+  selected.cx = clamp01(drag.cx + (e.clientX - drag.x) * k / s / selected.w); selected.cy = clamp01(drag.cy + (e.clientY - drag.y) * k / s / selected.h);
+  drawCrop(); renderOneSoon(selected); });
+const endDrag = () => { drag = null; cropCanvas.style.cursor = "grab"; };
+cropCanvas.addEventListener("pointerup", endDrag); cropCanvas.addEventListener("pointercancel", endDrag);
+cropCanvas.addEventListener("wheel", e => { if (!selected || selected.fit !== "crop") return; e.preventDefault();
+  setZoom(selected.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }, {passive: false});
+const clamp01 = v => Math.min(1, Math.max(0, v));
+function setZoom(z) { selected.zoom = Math.min(MAXZOOM, Math.max(1, z)); $("zoom").value = selected.zoom; $("zoomVal").textContent = selected.zoom.toFixed(1); drawCrop(); renderOneSoon(selected); }
+$("zoom").oninput = e => setZoom(+e.target.value);
+$("fit").onchange = e => { selected.fit = e.target.value; showSelected(); renderOne(selected); };
+$("applyAll").onclick = () => { if (!selected) return; items.forEach(it => { it.fit = selected.fit; it.zoom = selected.zoom; it.cx = selected.cx; it.cy = selected.cy; }); showSelected(); renderAll(); };
+
+// ---- rendering through the server (exactly the bitmap that would be uploaded)
+const timers = new Map();
+function renderOneSoon(it) { clearTimeout(timers.get(it)); timers.set(it, setTimeout(() => renderOne(it), 120)); }
+async function renderOne(it) {
+  const my = ++gen;
+  try {
+    const r = await api("/api/render", {item: itemParams(it), settings: settings()});
+    it.png = r.png; it.lit = r.lit;
+    const img = new Image(); img.onload = () => { it.rawImg = img; if (it === selected) drawLed(); }; img.src = r.png;
+    renderList();
+  } catch (e) { it.png = null; showError(e.message); }
+  schedulePlan();
+}
+async function renderAll() { for (const it of items) await renderOne(it); }
+["mode", "threshold", "invert", "autocontrast"].forEach(id => $(id).addEventListener("input", () => {
+  $("thVal").textContent = $("threshold").value; clearTimeout(window._allTimer); window._allTimer = setTimeout(renderAll, 150); }));
+
+// ---- LED preview
+function drawLed(imgOverride) {
+  const c = $("led"), g = c.getContext("2d"), it = selected;
+  g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--led-off") || "#15181d"; g.fillRect(0, 0, c.width, c.height);
+  const src = imgOverride || (it && it.rawImg); if (!src) return;
+  const t = document.createElement("canvas"); t.width = 256; t.height = 32; const tg = t.getContext("2d"); tg.drawImage(src, 0, 0);
+  const d = tg.getImageData(0, 0, 256, 32).data, color = $("previewColor").value, k = c.width / 256;
+  g.fillStyle = color;
+  for (let y = 0; y < 32; y++) for (let x = 0; x < 256; x++) if (d[(y * 256 + x) * 4] > 127) g.fillRect(x * k + .3, y * k + .3, k - .6, k - .6);
+}
+$("previewColor").oninput = () => drawLed();
+$("play").onclick = () => {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; $("play").textContent = "▶ 播放預覽"; drawLed(); return; }
+  const frames = items.filter(i => i.rawImg); if (!frames.length) return;
+  $("play").textContent = "■ 停止"; playIdx = 0;
+  playTimer = setInterval(() => { drawLed(frames[playIdx % frames.length].rawImg); playIdx++; }, Math.max(50, +$("ms").value || 200));
+};
+
+// ---- plan (checks) and sending
+function schedulePlan() { clearTimeout(planTimer); planTimer = setTimeout(plan, 250); }
+async function plan() {
+  const seq = ++planSeq, box = $("planBox"), btn = $("send");
+  if (!items.length || items.some(i => !i.png)) { lastPlan = null; btn.disabled = true; $("checks").textContent = "";
+    box.textContent = items.length ? "圖片還在處理…" : "加入圖片後這裡會顯示檢查結果。"; return; }
+  try {
+    const p = await api("/api/plan", {items: items.map(itemParams), settings: settings()});
+    if (seq !== planSeq) return;
+    lastPlan = p;
+    const problems = p.problems.map(x => `<div class="bad">✗ ${esc(x)}</div>`).join("");
+    box.innerHTML = `${p.pictures} 張 · ${p.frames} 個幀 · ${p.bytes} 位元組 · 預估約 ${p.seconds} 秒（最長 ${p.limit_seconds} 秒會自動中止）<br>` +
+      `<span class="muted">${esc(p.limits)} · 雜湊 ${p.sha.slice(0, 12)}</span>` + problems +
+      (p.tempohub_running ? `<div class="warn">⚠ TempoHub／Edifier 程式還在執行：請完全關閉（包含右下角系統匣）後再上傳。</div>` : `<div class="ok">TempoHub 已關閉</div>`);
+    $("checks").innerHTML = p.checks.map(c => `<li class="${c.ok ? "" : "fail"}">${esc(c.name)}</li>`).join("");
+    btn.disabled = !p.can_send;
+  } catch (e) { if (seq === planSeq) { lastPlan = null; btn.disabled = true; box.innerHTML = `<span class="bad">${esc(e.message)}</span>`; } }
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+function showError(msg) { const r = $("result"); r.style.display = "block"; r.textContent = msg; }
+
+let pendingAction = null;
+function ask(title, html, yes, action) { $("cTitle").textContent = title; $("cBody").innerHTML = html; $("cYes").textContent = yes; pendingAction = action; $("confirm").showModal(); }
+$("cNo").onclick = () => { pendingAction = null; $("confirm").close(); };
+$("cYes").onclick = async () => { const a = pendingAction; pendingAction = null; $("confirm").close(); if (a) await a(); };
+
+$("send").onclick = () => {
+  if (!lastPlan) return; const p = lastPlan;
+  ask("確定要上傳到音箱？",
+    `<p>會上傳 <b>${p.pictures}</b> 張圖片（${p.frames} 個幀，約 ${p.seconds} 秒），蓋掉音箱目前的場景（之後可在 TempoHub 點一下別的場景再點回來還原）。</p>
+     <p class="muted">${esc(p.limits)}；這次上傳會算一次（失敗也算）。位元圖雜湊 ${p.sha.slice(0, 12)}。</p>
+     <p>請確認 TempoHub <b>完全關閉</b>（包含系統匣）。程式會再自動檢查一次。上傳期間請不要動音箱或拔線。</p>`,
+    "確定上傳", () => doSend(p));
+};
+async function doSend(p) {
+  const btn = $("send"), r = $("result"); btn.disabled = true; r.style.display = "block"; r.textContent = "上傳中…（約 " + p.seconds + " 秒，請稍候）";
+  try {
+    const res = await api("/api/send", {items: items.map(itemParams), settings: settings(), expect_sha: p.sha, confirm: true});
+    r.textContent = (res.ok ? "✓ 完成：" : "✗ 失敗：") + `寫入 ${res.written}/${res.of} 個幀，回覆吻合 ${res.matched} 個，用時 ${res.elapsed} 秒` +
+      (res.ok ? "\n所有回覆都和預期一樣。請看音箱螢幕。" : `\n在第 ${res.stopped_at} 步停止：${res.reason}${res.raw ? "\n原始回覆 " + res.raw : ""}`) +
+      (res.unsolicited.length ? "\n（途中有 " + res.unsolicited.length + " 個設備主動發來的幀，已忽略並記錄）" : "") + "\n" + res.log.join("\n");
+  } catch (e) { r.textContent = "✗ " + e.message; }
+  schedulePlan();
+}
+$("sendColor").onclick = () => {
+  const rgb = $("devColor").value.slice(1);
+  ask("設定音箱文字顏色？", `<p>會送出一個顏色指令（<b>#${rgb}</b>）。圖片和文字都會用這個顏色顯示。請確認 TempoHub 完全關閉。</p>`, "確定送出", async () => {
+    const r = $("result"); r.style.display = "block"; r.textContent = "送出中…";
+    try { const res = await api("/api/color", {rgb, confirm: true}); r.textContent = "✓ 音箱已回覆（顏色 #" + rgb + "）：" + res.reply; }
+    catch (e) { r.textContent = "✗ " + e.message; }
+  });
+};
+window.addEventListener("resize", drawCrop);
+</script>
+</body>
+</html>

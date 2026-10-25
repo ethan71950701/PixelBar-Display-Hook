@@ -251,6 +251,9 @@ def main(argv=None):
     sl.add_argument("--preview-dir", default=PREVIEW_DIR, help=f"where the contact sheet PNG goes (default {PREVIEW_DIR}; keep it outside the repository)")
     sl.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; required with --send")
     add_send_options(sl)
+    gu = sub.add_parser("gui", help="open a browser window to add pictures, crop them and upload them with a click (needs Pillow)")
+    gu.add_argument("--no-browser", action="store_true", help="only print the address")
+    gu.add_argument("--port", type=int, default=0, help="fixed port on 127.0.0.1 (default: a free one)")
     pr = sub.add_parser("prepare", help="only convert a picture to a 256x32 black-and-white PNG for you to check")
     pr.add_argument("picture")
     pr.add_argument("output")
@@ -268,6 +271,9 @@ def main(argv=None):
         add_send_options(p)
     args = ap.parse_args(argv)
 
+    if args.command == "gui":
+        from . import gui
+        return gui.serve(open_browser=not args.no_browser, port=args.port)
     if args.command == "image":
         return cmd_image(args)
     if args.command == "animation":

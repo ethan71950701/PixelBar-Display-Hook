@@ -128,6 +128,14 @@ Workflow and status:
      order right, about 4 s per loop, nothing odd). Staged test finished (each step had a
      dry run and the user's go-ahead). "Frame" = one 64-byte message, "picture" = one 256x32
      image (see docs/protocol.md).
+     Graphical window (developed 2026-10-25, tested only with fake devices and
+     by looking at the page; nothing sent from it yet): double-click
+     PixelBar-GUI.bat or `python -m pixelbar gui`. Local web page on 127.0.0.1
+     with a random token (pixelbar/gui.py + gui_page.html): add pictures, move
+     and zoom an 8:1 crop frame (or contain/stretch), dither/threshold/invert,
+     exact 256x32 preview, upload checks, colour. The upload button asks for a
+     confirmation and the server re-checks TempoHub, limits and the bitmap hash
+     (same single bounded send as the CLI).
      Own pictures (developed; real uploads: attempt 4 stopped, upload 5 ok): `python -m pixelbar image PIC`
      (dry run by default) and `prepare PIC OUT.png`, Pillow optional
      (pixelbar/prepare.py only). Limits that only ~/.pixelbar/limits.json can
