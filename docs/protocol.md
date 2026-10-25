@@ -507,6 +507,71 @@ Byte values (each correlated with the user's action in the captures):
   `ee` status after the first text in capture 02 read static/centre).
 - None of this was sent by us; `pixelbar` does not build these frames yet.
 
+## Live length tests, 2026-10-25 (confirmed by this live test)
+
+Sent from `python -m pixelbar` with TempoHub fully closed, the user watching
+the speaker. One frame per step, nothing repeated. Only `e8` (text) and the
+4-byte `ef` colour frame (`03 R G B`) were used; no 9-byte mode frame. The
+display mode was set by the user in TempoHub beforehand: round 1 "static
+centre", round 2 "scroll, left to right". Every `e8` got the same reply,
+`2f cc ec e8 00 01 01 a2`; the colour frame got its colour echoed back (below).
+Each answer is the user's own, copied as typed (traditional Chinese), in the
+order of the questions asked; the English is a plain translation, not an
+interpretation.
+
+### Round 1: static centre
+
+| Step | Text sent (UTF-8 bytes) | User's answer | Translation |
+|---|---|---|---|
+| 1 | `Hello` (5) after colour `03 33 66 99` | `1是 2藍色偏灰` | 1 yes (text normal); 2 bluish grey |
+| 2 | `Hello World!` (12) | `1有 2沒有，完整顯示 3是 4沒有` | 1 yes; 2 no truncation, shown completely; 3 yes (colour still bluish grey); 4 nothing odd |
+| 3 | `ABCDEFGHIJKLMNOPQRSTUVWX` (24) | `1是 2沒有 3縮小了 4是` | 1 yes (complete); 2 not truncated; 3 shrunk; 4 yes (colour unchanged) |
+| 4 | `0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrs` (55, the whole frame, no padding) | `1沒有 2V後面沒有了 3是 4是 5沒有` | 1 no (not complete); 2 nothing after V; 3 yes (smaller than the last step); 4 yes (colour unchanged); 5 nothing odd |
+
+- Colour: frame `2e aa ec ef 00 04 03 33 66 99 be`, reply
+  `2f bb ec ef 00 09 03 33 66 99 00 00 ff ff ff d1`. The user saw a bluish
+  grey, as expected for `#336699`, and it stayed so in every later step
+  (confirmed: the 4-byte colour frame with an uncaptured colour takes effect).
+- 55 bytes in static centre was cut off after `V`. By counting our own string,
+  that is the first 32 characters (`0123456789` + `A`..`V`); this count is
+  arithmetic, not an observation. Whether the cut is a byte limit, the
+  display width, or the font floor was not tested.
+
+### Round 2: scroll, left to right
+
+| Step | Text sent (UTF-8 bytes) | User's answer | Translation |
+|---|---|---|---|
+| 2 | `Hello World!` (12) | `1是 2對 3比較慢 4沒有 5沒有` | 1 yes (scrolled out completely); 2 correct (left to right); 3 rather slow; 4 colour unchanged; 5 nothing odd |
+| 3 | `ABCDEFGHIJKLMNOPQRSTUVWX` (24) | `1完整，沒有 2差不多 3縮小了 4沒有 5沒有` | 1 complete, no letter missing; 2 about the same (direction/speed as before); 3 shrunk; 4 colour unchanged; 5 nothing odd |
+| 4 | the same 55 bytes | `1完整 2差不多 3差不多 4沒有 5沒有` | 1 complete; 2 about the same (font size vs 24 bytes); 3 about the same (direction/speed); 4 colour unchanged; 5 nothing odd |
+
+### What these results establish
+
+- A 55-byte text, the most one 64-byte report can carry (frame exactly 64
+  bytes, no padding), is accepted and acknowledged by the device (confirmed:
+  twice, round 1 and 2).
+- In static centre: 12 bytes shown completely; 24 bytes shown completely with
+  a smaller font; 55 bytes shown only up to `V`, with a still smaller font
+  (user's words). In scroll left to right: 12, 24 and 55 bytes all scrolled
+  out completely, left to right; the font shrank at 24 bytes and was about the
+  same at 55 (user's words); speed "rather slow" for the 12-byte text,
+  "about the same" afterwards.
+- The text colour set with the 4-byte `ef` frame stayed through the following
+  `e8` frames in both modes (user: no colour change in any later step).
+- Our `e8` frames did not change the main mode or direction: in round 2 the
+  speaker kept scrolling left to right after three `e8` frames (confirmed).
+  For static centre the user was not asked about the alignment each step, so
+  that mode is not claimed.
+
+### What they do NOT establish
+
+- Why static mode cuts at `V`; whether it keeps 32 bytes or is limited by
+  width or font; any other length between 24 and 55.
+- Anything about text longer than one frame (not tried, no such transfer was
+  captured).
+- The scroll speed in numbers; whether each new `e8` restarts the scroll.
+- Whether any of this writes flash (see Unknowns).
+
 ## Unknowns (open questions, 2026-10-25)
 
 Things that are NOT known. Nothing below is a finding; where there is a hint
@@ -527,9 +592,16 @@ the safe refresh rate is far lower than if it only touches RAM.
   before writing, so this proves nothing.
 - Not established: whether the text survives a speaker power cycle, and
   whether the device debounces or delays writes.
+- Our code sent 12 `e8` frames and 2 colour frames on 2026-10-25, a few
+  minutes apart or less, with no error, no odd reply and nothing odd on the
+  screen. That does not test flash wear: a handful of writes cannot show a
+  limit of thousands.
 - Rule until this is known: treat each `e8` as a possible flash write: no
   loops, no refresh faster than a person would retype it. No timed refresh
   code exists yet (deliberately).
+- A test that would answer it with a few frames: send a text, power-cycle the
+  speaker, see whether the text is still there (RAM would lose it, flash
+  would keep it). Needs the user's approval.
 - A later test would need commands we have not sent from our code (an `e7`
   read-back, a power cycle); it needs the user's approval first.
 
@@ -552,14 +624,18 @@ the safe refresh rate is far lower than if it only touches RAM.
 - One 64-byte frame carries at most 55 bytes of text (report size limit). The
   count field is one byte, so the protocol might allow more through several
   frames, but no multi-frame transfer was ever seen.
-- Verified on the device: 6 UTF-8 bytes (`你好`) and 5 (`Hello`). Anything
-  longer is untested. The CLI refuses text over `--max-bytes` (default 6) and
-  always refuses more than 55 bytes.
-- The `e7` read-back contains two constant bytes, `10 32` (16 and 50 as
-  numbers), in every reply. They could be limits, but nothing supports that.
-- Not known: what the screen does with long text (scroll, truncate, or
-  reject), and TempoHub's own length limit (a capture of a long text typed in
-  TempoHub would show it).
+- Verified on the device (live tests, 2026-10-25): 5, 6, 12, 24 and 55 UTF-8
+  bytes are accepted and acknowledged, up to the one-frame maximum of 55. See
+  "Live length tests" for what the screen showed in static centre and in
+  scroll left to right. The CLI default `--max-bytes` is still 6; raising it
+  is allowed up to 55 (hard limit).
+- The `e7` read-back contains a constant byte `32` and a mode byte (`10`
+  static, `20` scroll). The `32` (50 as a number) could be a limit, but
+  nothing supports that: a 55-byte text was acknowledged.
+- Static centre cut the 55-byte text after `V` (32 characters of ours); scroll
+  showed all 55. Not known: the exact static cut-off rule (bytes, width or
+  font), text longer than one frame, and TempoHub's own length limit (a
+  capture of a long text typed in TempoHub would show it).
 
 ### 4. Display options in TempoHub (scroll/static + alignment)
 
@@ -571,7 +647,9 @@ The command bytes are now known: see "Captures 10-17". What remains open:
   in force, not a protocol limit. The setting at test time must be recorded
   with each result (set it in TempoHub beforehand; our `e8` is not known to
   change it).
-- Whether `e8` itself resets or changes the mode: not established.
+- Whether `e8` itself resets or changes the mode: in scroll left to right it
+  did not (three `e8` frames, scrolling stayed left to right; live test of
+  2026-10-25). Not checked for the other modes.
 - Whether the device applies the RGB inside a `sel = 01/02` frame: not known.
 - Not captured: the scroll speed, if TempoHub has such a setting.
 

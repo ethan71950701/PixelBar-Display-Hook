@@ -50,6 +50,10 @@ Workflow and status:
      major sub ff`; major 00 static / 01 scroll; sub meaning depends on major.
      NOT in the CLI yet and nothing sent. Before the long-text tests, set the
      mode in TempoHub (then quit it) and record it with each result.
+   Live length tests DONE 2026-10-25 (static centre, then scroll left to
+     right; 5/12/24/55 bytes): all acknowledged; static cut the 55 B text
+     after "V", scroll showed it all; colour 336699 took effect. See "Live
+     length tests" in docs/protocol.md. Still no timed-refresh code.
    D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar
      text "..." [--color RRGGBB] | color RRGGBB`; default is a dry run, --send
      writes after asking "TempoHub closed?" (or --yes-i-closed-tempohub),
