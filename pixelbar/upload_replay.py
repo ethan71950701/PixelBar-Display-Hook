@@ -17,6 +17,7 @@ Rules (user-approved, 2026-10-25):
     so nothing is waited for after it.
 """
 import json
+import math
 import os
 import time
 
@@ -72,7 +73,45 @@ class UploadBudget:
 
 def frame_differences(steps, captured):
     """{step index: [byte offsets that differ]} between the planned OUT frames and the captured ones."""
-    return {i: [k for k in range(64) if s[1][k] != captured[i][k]] for i, s in enumerate(steps) if s[1] != captured[i]}
+    return {i: [k for k in range(64) if s[1][k] != captured[i][k]] for i, s in enumerate(steps) if i < len(captured) and s[1] != captured[i]}
+
+
+def _multi_image_checks(steps, built, image, c, ef, captured_out):
+    """Checks for an upload of several images, written from the format and not from the builder's code:
+    the start frame carries the new total size, the records are numbered 0.., the data frames carry exactly
+    the image data, and the speaker is expected to answer like it did for TempoHub's multi-image uploads."""
+    count = len(image) // upload.IMAGE_BYTES
+    records = count * (upload.IMAGE_BYTES // upload.RECORD_DATA)       # 8 records of 128 bytes per image
+    stream, seqs, bad_payload = bytearray(), [], False
+    for frame in built[2:-1]:
+        payload = frame[6:6 + int.from_bytes(frame[4:6], "big")]
+        if payload[:2] != b"\x00\x02":
+            bad_payload = True
+            break
+        seqs.append(int.from_bytes(payload[2:4], "big"))
+        stream += payload[4:]
+    record = upload.RECORD_HEADER + upload.RECORD_DATA
+    headers_ok = len(stream) == records * record and all(
+        bytes(stream[i * record:i * record + 5]) == bytes([c["type"]]) + i.to_bytes(2, "big") + c["xx"].to_bytes(2, "big") for i in range(records))
+    data = b"".join(bytes(stream[i * record + upload.RECORD_HEADER:(i + 1) * record]) for i in range(records))
+    start_diff = [k for k in range(64) if built[1][k] != captured_out[1][k]]
+    chunks = len(seqs)
+
+    def reply(cmd, payload):
+        return frames.build_frame(cmd, payload, report_id=frames.REPORT_ID_IN, tag=frames.TAG_REPLY)
+
+    wanted = [reply(frames.CMD_SET_COLOR, ef), reply(upload.CMD_UPLOAD, b"\x00\x01\x00\x32")]
+    wanted += [reply(upload.CMD_UPLOAD, b"\x00\x03" + s.to_bytes(2, "big")) for s in range(chunks - 1)]
+    wanted.append(reply(upload.CMD_UPLOAD, b"\x00\x05"))
+    return {
+        f"{count} images of 256x32 ({count * upload.IMAGE_BYTES} bytes of image data), {records} records, {chunks} data chunks": not bad_payload and chunks > 0,
+        "the ef frame and the end frame equal the TempoHub frames of capture 20": built[0] == captured_out[0] and built[-1] == captured_out[-1],
+        f"the start frame carries the new total size {records * record} and differs from capture 20's start frame in nothing else": (
+            int.from_bytes(built[1][8:12], "big") == records * record and all(k in (8, 9, 10, 11, 12) for k in start_diff)),
+        "record headers: T and XX XX are capture 20's, the index runs 0.. without gaps": headers_ok,
+        "the data frames carry exactly the image data, chunk numbers run 0.. without gaps": data == image and seqs == list(range(chunks)),
+        "expected replies: ef echo, ready (chunk size 50), one acknowledgement per chunk but the last, done": [s[2] for s in steps if s[2] is not None] == wanted,
+    }
 
 
 def load_plan(fixture=FIXTURE, pixel=None, image=None):
@@ -89,8 +128,8 @@ def load_plan(fixture=FIXTURE, pixel=None, image=None):
     ef = bytes.fromhex(c["ef_payload"])
     captured_image = bytes.fromhex(c["image_hex"])
     if image is not None:
-        if len(image) != len(captured_image):
-            raise ValueError(f"the image data must be {len(captured_image)} bytes (one 256x32 image)")
+        if len(image) < upload.IMAGE_BYTES or len(image) % upload.IMAGE_BYTES:
+            raise ValueError(f"the image data must be a whole number of {upload.IMAGE_BYTES}-byte images (256x32 each)")
     else:
         image = captured_image if pixel is None else upload.set_pixel(captured_image, *pixel)
     built = upload.upload_sequence(image, c["type"], c["xx"], tuple(ef[1:4]), ef[7])
@@ -110,7 +149,10 @@ def load_plan(fixture=FIXTURE, pixel=None, image=None):
             label, reply = f"17 data seq {i - 2}", expected[i]
         steps.append((label, frame, reply))
     captured_out = [bytes.fromhex(h) for h in c["out"]]
-    if pixel is None and image == captured_image:
+    many = len(image) > upload.IMAGE_BYTES
+    if many:
+        change_checks = _multi_image_checks(steps, built, image, c, ef, captured_out)
+    elif pixel is None and image == captured_image:
         change_checks = {"OUT frames equal the TempoHub frames of capture 20 (fixture)": built == captured_out}
     elif pixel is None:
         diffs = frame_differences(steps, captured_out)
@@ -143,7 +185,7 @@ def load_plan(fixture=FIXTURE, pixel=None, image=None):
         }
     checks = {
         **change_checks,
-        "expected replies equal the speaker's replies in capture 20": expected == [bytes.fromhex(h) for h in c["in"]],
+        **({} if many else {"expected replies equal the speaker's replies in capture 20": expected == [bytes.fromhex(h) for h in c["in"]]}),
         "record header T is the captured 0x02": c["type"] == 0x02,
         "record header XX XX is the captured 0x0064": c["xx"] == 0x0064,
         "ef frame payload is the captured 01 33 66 99 00 01 02 21 ff": ef.hex() == "0133669900010221ff",
@@ -186,10 +228,17 @@ def classify(data, expected, colour_may_differ=False):
     return "mismatch"
 
 
-def run(dev, steps, clock=time.monotonic, log=print):
+def total_limit_for(steps):
+    """Seconds allowed for the whole exchange: 30 s, more for long uploads (each chunk takes the
+    speaker about 46-52 ms; the limit is 5 s plus 0.12 s per chunk, so well above the pace seen)."""
+    return max(TOTAL_LIMIT_S, float(math.ceil(5 + 0.12 * (len(steps) - 3))))
+
+
+def run(dev, steps, clock=time.monotonic, log=print, total_limit=None):
     """Write the steps in order. Returns a dict; ok is True only if every expected reply matched."""
     result = {"ok": False, "written": 0, "matched": 0, "unsolicited": [], "stopped_at": None, "reason": None, "raw": None, "elapsed": 0.0,
               "colour_reported": None}
+    limit_s = total_limit if total_limit else total_limit_for(steps)
     t0 = clock()
 
     def stop(i, reason, raw=None):
@@ -198,8 +247,8 @@ def run(dev, steps, clock=time.monotonic, log=print):
         return result
 
     for i, (label, frame, expected) in enumerate(steps):
-        if clock() - t0 > TOTAL_LIMIT_S:
-            return stop(i, f"total time limit of {TOTAL_LIMIT_S:.0f} s reached before this write")
+        if clock() - t0 > limit_s:
+            return stop(i, f"total time limit of {limit_s:.0f} s reached before this write")
         written = dev.write(frame)
         if written != len(frame):
             return stop(i, f"write returned {written}, expected {len(frame)}")
@@ -208,12 +257,12 @@ def run(dev, steps, clock=time.monotonic, log=print):
         if expected is None:
             log(stamp + "; no reply expected")
             continue
-        deadline = min(clock() + REPLY_TIMEOUT_S, t0 + TOTAL_LIMIT_S)
+        deadline = min(clock() + REPLY_TIMEOUT_S, t0 + limit_s)
         while True:
             remaining = deadline - clock()
             if remaining <= 0:
-                limit = "total time limit" if clock() - t0 >= TOTAL_LIMIT_S else f"no matching reply within {REPLY_TIMEOUT_S:.0f} s"
-                return stop(i, limit)
+                why = "total time limit" if clock() - t0 >= limit_s else f"no matching reply within {REPLY_TIMEOUT_S:.0f} s"
+                return stop(i, why)
             data = bytes(dev.read(64, max(1, int(remaining * 1000))))
             if not data:
                 continue

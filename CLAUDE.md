@@ -115,6 +115,13 @@ Workflow and status:
      limits.json is {"total": 20, "per_day": 10} (written at the user's request);
      4->5 uploads used. The silhouette replaced the scene 兼职成年人 until it is
      clicked again in TempoHub (restore not reported yet).
+     Multi-picture uploads: `python -m pixelbar animation --frames N` (1-20,
+     generated test animation, dry run by default; plan checks in
+     upload_replay._multi_image_checks; exchange time limit max(30 s, 5 s +
+     0.12 s per chunk)). The user chose the staged live test 2 -> 7 -> 20
+     pictures; nothing of it sent yet; each step needs a dry run shown and the
+     user's go-ahead. "Frame" = one 64-byte message, "picture" = one 256x32
+     image (see docs/protocol.md).
      Own pictures (developed; real uploads: attempt 4 stopped, upload 5 ok): `python -m pixelbar image PIC`
      (dry run by default) and `prepare PIC OUT.png`, Pillow optional
      (pixelbar/prepare.py only). Limits that only ~/.pixelbar/limits.json can

@@ -13,7 +13,7 @@ import json
 import os
 import sys
 
-from . import device, frames, image, image_send, limits, prepare, upload, upload_replay
+from . import device, frames, image, image_send, limits, prepare, testanim, upload, upload_replay
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "..", "tests", "fixtures", "captured_frames.json")
 PREVIEW_DIR = r"C:\pixelbar-raw\preview"   # outside the repository
@@ -117,19 +117,26 @@ def cmd_image(args):
     print(f"wrote the 4x preview of that bitmap: {out}")
 
     steps, checks = upload_replay.load_plan(image=bitmap)
-    if args.expect_sha is not None:
-        checks["--expect-sha matches the bitmap that would be uploaded"] = image.sha_matches(bitmap, args.expect_sha)
     with open(upload_replay.FIXTURE, encoding="utf-8") as fh:
         captured = [bytes.fromhex(h) for h in json.load(fh)[upload_replay.KEY]["out"]]
     diffs = upload_replay.frame_differences(steps, captured)
     print(f"\nupload sequence: {len(steps)} frames (1 ef, 1 start, {len(steps) - 3} data, 1 end); expected replies are those of capture 20")
     print(f"frames that differ from capture 20: {len(diffs)} of {len(steps)}; identical frames: steps "
           f"{[i for i in range(len(steps)) if i not in diffs]}")
+    finish_upload(args, steps, checks, bitmap, sha)
+
+
+def finish_upload(args, steps, checks, bitmap, sha):
+    """Shared by `image` and `animation`: print the checks and the limits, then stop (dry run) or upload once."""
+    if args.expect_sha is not None:
+        checks["--expect-sha matches the bitmap that would be uploaded"] = image.sha_matches(bitmap, args.expect_sha)
     print("checks (the unknown fields keep capture 20's values):")
     for name, ok in checks.items():
         print(f"  [{'OK' if ok else 'FAIL'}] {name}")
     print("reply rule: every reply must equal the expected one; only the 3 colour bytes of the scene-select (ef) reply may be the "
           "speaker's current colour (its checksum must still be right); the first other reply or a timeout stops the run")
+    print(f"time: about {0.4 + 0.048 * (len(steps) - 3):.0f} s expected at the speaker's pace; the exchange is stopped after "
+          f"{upload_replay.total_limit_for(steps):.0f} s at the latest")
     try:
         print("limits: " + limits.status_line())
         problems = limits.problems_for_upload(sha)
@@ -166,6 +173,35 @@ def cmd_image(args):
     print("all replies matched; the sequence is complete")
 
 
+def cmd_animation(args):
+    if args.send and args.dry_run:
+        sys.exit("--send and --dry-run contradict each other")
+    if not 1 <= args.frames <= testanim.FRAMES:
+        sys.exit(f"error: --frames is between 1 and {testanim.FRAMES}")
+    pictures = testanim.frames(args.frames)
+    bitmap = b"".join(image.pack_pixels(rows) for rows in pictures)
+    sha = image_send.bitmap_sha256(bitmap)
+    print(f"generated test animation, the first {args.frames} of {testanim.FRAMES} pictures (a {testanim.BLOCK_W}x{testanim.BLOCK_H} block moves "
+          f"from the left to the right, the picture number is drawn at the top left); {args.frames * upload.IMAGE_BYTES} bytes of image data; "
+          f"bitmap sha256 {sha[:16]}")
+    print(f"{'no.':>4} {'block x':>8} {'lit pixels':>11}")
+    for k, rows in enumerate(pictures):
+        print(f"{k + 1:>4} {testanim.block_x(k):>8} {sum(map(sum, rows)):>11}")
+    print("picture 1 as it would be uploaded ('#' lit, '.' dark):")
+    print(image.preview(pictures[0]))
+    os.makedirs(args.preview_dir, exist_ok=True)
+    out = os.path.join(args.preview_dir, f"testanim_{args.frames}pictures_{sha[:8]}_x3.png")
+    with open(out, "wb") as fh:
+        fh.write(image.stack_png(pictures, 3))
+    print(f"wrote the 3x contact sheet of all {args.frames} pictures (top to bottom, in the order they are uploaded): {out}")
+
+    steps, checks = upload_replay.load_plan(image=bitmap)
+    chunks = len(steps) - 3
+    print(f"\nupload sequence: {len(steps)} frames (1 ef, 1 start, {chunks} data, 1 end), declared size {args.frames * 8 * 133} bytes, "
+          f"{args.frames * 8} records of 133 bytes; ef, end and the unknown fields are capture 20's, the start frame differs from capture 20's only in the size")
+    finish_upload(args, steps, checks, bitmap, sha)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="pixelbar", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
@@ -176,6 +212,11 @@ def main(argv=None):
     im.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; "
                     "required with --send, so that exactly the bitmap you looked at is sent (optional in a dry run: checks it)")
     add_send_options(im)
+    an = sub.add_parser("animation", help="a generated test animation of N pictures in one upload (dry run by default)")
+    an.add_argument("--frames", type=int, required=True, help=f"how many pictures, 1 to {testanim.FRAMES} (the first N of the 20)")
+    an.add_argument("--preview-dir", default=PREVIEW_DIR, help=f"where the contact sheet PNG goes (default {PREVIEW_DIR}; keep it outside the repository)")
+    an.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; required with --send")
+    add_send_options(an)
     pr = sub.add_parser("prepare", help="only convert a picture to a 256x32 black-and-white PNG for you to check")
     pr.add_argument("picture")
     pr.add_argument("output")
@@ -195,6 +236,8 @@ def main(argv=None):
 
     if args.command == "image":
         return cmd_image(args)
+    if args.command == "animation":
+        return cmd_animation(args)
     if args.command == "prepare":
         return cmd_prepare(args)
     if args.send and args.dry_run:

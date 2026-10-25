@@ -1624,6 +1624,74 @@ speaker); the restore after this upload (not done at the time of writing; the
 speaker shows the silhouette in place of 「兼职成年人」 until the scene is
 clicked in TempoHub again).
 
+## Several pictures in one upload: the test animation (development; nothing sent)
+
+Words used from here on: a FRAME is one 64-byte message between the PC and the
+speaker (an upload of one picture is 25 frames: 1 `ef`, 1 start, 22 data, 1
+end); a PICTURE is one 256x32 image (1024 bytes). Earlier sections sometimes
+call the pictures of an animation scene "frames" ("2 frames", "7 frames");
+those are pictures.
+
+What exists: `python -m pixelbar animation --frames N` (N = 1 to 20; dry run by
+default; `--send --expect-sha HEX --yes-i-closed-tempohub` uploads once, with
+the same limits, hash binding and bounded exchange as `image`). The pictures
+are generated (`pixelbar/testanim.py`, no picture file, no Pillow): a 14x14 block
+moves from the far left (picture 1) to the far right (picture 20) in equal
+steps, and the picture number is drawn at the top left (6x10 pixel digits). The
+first N pictures are the same for every N. The dry run prints the table of
+pictures, writes a numbered 3x contact sheet PNG of exactly what would be
+uploaded (to `--preview-dir`, outside the repository), and shows the plan.
+
+The plan for N pictures (the upload format of "Scene uploads", with the size
+and the number of records and chunks following from N): `ef` scene select (as
+capture 20), start with the total size N x 1064, N x 8 records of 133 bytes
+numbered from 0 (T and `XX XX` as capture 20), chunks of 50 bytes, end (as
+capture 20). N = 2: 46 frames (43 chunks, 2128 bytes, as TempoHub's 2-picture
+scenes); N = 7: 152 frames (149 chunks, 7448 bytes, exactly the size of
+TempoHub's largest upload, capture 33); N = 20: 429 frames (426 chunks, 21,280
+bytes). The plan checks, written from the format and not from the builder's
+code, say: the `ef` and end frames are capture 20's; the start frame differs
+from capture 20's only in the size (and its checksum), and the size equals the
+data sent; the record headers carry capture 20's `T` and `XX XX` and an index
+running 0.. without gaps; the data frames carry exactly the pictures, chunk
+numbers running 0.. without gaps; the expected replies are the `ef` echo, ready
+(chunk size 50), one acknowledgement per chunk but the last, done. A test breaks
+the start frame's size on purpose and checks that this is caught.
+
+Time: the speaker takes about 46-52 ms per chunk (see "Animation scenes"), so
+20 pictures need about 21 s. The fixed 30 s limit of the exchange would be too
+tight for a speaker only 1.5 times slower (32 s), so the limit is now `max(30
+s, 5 s + 0.12 s per chunk)`: unchanged 30 s for up to about 200 chunks (every
+upload so far, including 7 pictures), 57 s for 20 pictures. Every reply still
+has to arrive within 2 s and the first unexpected reply still stops the run
+(tested, including a speaker so slow that even 57 s is not enough).
+
+### The staged live test the user chose: 2, then 7, then 20 pictures
+
+Each step is a separate upload (each counts against the budget and the daily
+cap) and needs the user's go-ahead after a dry run; any reply that is not the
+expected one, or anything odd on the screen, stops the sequence. Before each
+the screen shows something else (`Hello` in the colour in force). What the
+user is asked to report after each: how many pictures the speaker shows, in
+which order, whether the block moves, how fast, whether it loops or stops, and
+anything odd.
+
+Not known and to be learned (or to go wrong):
+
+- The speaker's capacity for pictures per scene. The most seen is 7. How
+  many fit in the place of the scene with `T` = `02` / `p7` = `21` (which
+  holds one picture normally) is not known; TempoHub's scenes of the same kind
+  hold 1 or 2. Whether the speaker refuses an upload that is too large (and
+  how), or does something worse, is not known: that is the reason for the steps.
+- How a multi-picture scene is played (order, speed, loop) when uploaded by our
+  code, and what `XX XX` does to it (it stays at capture 20's `0064`). The loop
+  times of TempoHub's scenes were never given.
+- The storage written by an upload of 20 pictures is about 20 times that of one
+  picture; whether that matters for wear is not known (see the write-risk
+  assessment).
+- Like every upload it replaces the scene 「兼职成年人」 until it is clicked
+  again in TempoHub.
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The

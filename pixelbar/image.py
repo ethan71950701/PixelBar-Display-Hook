@@ -165,6 +165,16 @@ def rows_to_png(rows, scale=1):
     return encode_png_gray([[255 if v else 0 for v in row] for row in scale_rows(rows, scale)])
 
 
+def stack_png(pictures, scale=3, gap=3):
+    """One PNG with all pictures (rows of 0/1) stacked top to bottom, grey bars between them."""
+    rows = []
+    for k, picture in enumerate(pictures):
+        rows += [[255 if v else 0 for v in row] for row in picture]
+        if k < len(pictures) - 1:
+            rows += [[90] * WIDTH for _ in range(gap)]
+    return encode_png_gray(scale_rows(rows, scale))
+
+
 def preview(rows):
     """Text picture of the 256x32 image: '#' lit, '.' dark, with a column ruler and row numbers."""
     ruler = "    " + "".join(str((x // 10) % 10) if x % 10 == 0 else " " for x in range(WIDTH))
