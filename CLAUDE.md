@@ -67,6 +67,11 @@ Workflow and status:
      hex-text fixture). It has no device path. Real uploads (stage 2: replay
      capture 20 unmodified) need the checks listed in docs/protocol.md and the
      user's explicit approval; the unknown header/ef fields are never varied.
+   Upload stage 2 DONE 2026-10-25: tools/replay_upload.py replayed capture 20
+     once; 25/25 frames, all 24 replies matched, screen showed 兼职成年人
+     (user-confirmed). Only capture 20 can be replayed; no unknown field was
+     changed. Stage 3 (changing pixels) is NOT started: see "Open questions
+     before stage 3" in docs/protocol.md; needs the user's approval first.
    Characters: only send text from the tested allow-list (see "Design
      principles for the sending CLI" in docs/protocol.md).
    D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar

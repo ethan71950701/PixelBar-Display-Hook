@@ -940,6 +940,71 @@ Nothing was sent to the device.
   layout, the size field and the chunking for these three; it does not
   confirm the meaning of the unknown fields below.
 
+## Stage 2: replay of capture 20's upload (confirmed by this live test, 2026-10-25)
+
+Run once, with TempoHub fully closed (process count 0; the tray also exited,
+per the user) and the user watching the speaker. Nothing else was sent in
+this stage.
+
+Step a (existing CLI): text colour `336699`, then the text `Hello`
+(`2e aa ec ef 00 04 03 33 66 99 be`, `2e aa ec e8 00 07 00 05 48 65 6c 6c 6f
+7e`). Both were answered as expected (`2f bb ec ef 00 09 03 33 66 99 00 00 ff
+ff ff d1` and `2f cc ec e8 00 01 01 a2`). The user's answers on the screen:
+`1是2是` ("1 yes, 2 yes": it showed `Hello`, in the greyish blue).
+
+Step b (`python tools/replay_upload.py --send --yes-i-closed-tempohub`): the 25
+OUT frames of capture 20, byte for byte as TempoHub sent them (all unknown
+fields at the captured values: record header `T` = `02`, `XX XX` = `0064`, `ef`
+frame `01 33 66 99 00 01 02 21 ff`), the plan having been checked against the
+capture fixture and the stage-1 builder before sending:
+
+- ef scene select (1 frame), start (1), data seq 0-21 (22), end (1).
+- Device replies: all 24 expected replies matched exactly: the `ef` echo, the
+  ready reply `00 01 00 32` (chunk size 50, as expected), 21 chunk
+  acknowledgements `00 03 <seq>` for seq 0-20, and the end acknowledgement
+  `00 05`. The last data chunk (seq 21) got no reply, as in the capture, and
+  nothing was waited for after it.
+- No unsolicited `ee` or `66` frame arrived during the upload. No timeout, no
+  mismatch, no retry, no frame sent twice. 25 of 25 frames written.
+- Timing: 1.44 s from the first write to the end acknowledgement (capture 20:
+  1.42 s). The speaker took about 0.2 s to answer the start frame and about
+  0.2 s to answer the end frame, as in the captures.
+
+What the user saw, as typed: `1兼职成年人2一樣3沒有`. Answers to my three
+questions in order: (1) what the screen shows now: 兼职成年人; (2) whether font,
+colour and position are the same as in capture 20 at the time: the same (一樣);
+(3) anything else odd (flicker, leftover `Hello`, garbage, no reaction): none
+(沒有).
+
+Result: after replaying the upload sequence of capture 20, the screen displayed
+兼职成年人 where it had displayed `Hello`. That is all this test shows. It does
+not show whether the scene stays after a power cycle, whether it wrote flash,
+what any unknown field does, or what happens with changed image data; and as
+the `ef` frame's colour bytes equalled the colour already in force
+(`33 66 99`), it does not show whether the speaker applies them.
+
+Way back: clicking the scene in TempoHub uploads it again (capture 22 shows a
+second upload of the same data); this was not exercised after this test.
+
+### Open questions before stage 3 (changing pixels)
+
+- Whether the speaker checks the image data: `XX XX` or something in the
+  start/end exchange could depend on the content. Only unchanged data has been
+  uploaded, so nothing is known. A first test would change one pixel only.
+- Which scene a changed upload replaces: with `T`, `p6` and `p7` kept as in
+  capture 20 it is the same scene (兼职成年人); that scene would then show our
+  image until TempoHub uploads it again. Not tested.
+- Whether TempoHub really restores it (click the scene, wait for the upload),
+  and whether a stored scene survives a power cycle: neither was tested.
+- Pixel geometry on the real screen: that the layout 256x32, vertical bytes,
+  least significant bit on top, is the speaker's own is supported by the
+  legible 兼职成年人; a test that lights a known pixel (for example a corner)
+  would show whether all 256 columns and 32 rows appear, and whether any edge
+  is cut.
+- Whether the image is drawn in the text colour in force (the `ef` frame's RGB
+  or the earlier `ef` colour setting) or in a fixed colour: not known.
+- A limit on the number of uploads, because it may write flash (see Unknowns).
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The
