@@ -46,7 +46,7 @@ Workflow and status:
      Colour: `--frame COLOR_330200` (03 33 02 00) sent; device echoed it, colour
      turned the TEXT colour red (user-confirmed). The leading 03 is still
      unexplained and is never varied.
-   D (code written 2026-10-25, NOT yet sent) free input: `python -m pixelbar
+   D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar
      text "..." | color RRGGBB` with `--send --yes-i-closed-tempohub`; default
      is dry run, one frame per call, text limited to --max-bytes (default 6 =
      longest verified). Each live step needs the user's OK, in this order:

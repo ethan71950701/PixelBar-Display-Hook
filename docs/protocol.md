@@ -392,7 +392,24 @@ wrote one frame built by `pixelbar.frames.text_frame("AB")`:
 - Still unexplained: the leading `03` (never varied; no other value was
   sent). The reply tag for `ef` is `bb`, for `e8` it is `cc`.
 - Not yet sent from our code: any colour other than the two captured ones
-  (`33 02 00`, `00 33 07`); the allow-list has no free colour input.
+  (`33 02 00`, `00 33 07`) through `replay_frame.py` (its allow-list is fixed).
+
+## Stage D: free input via `python -m pixelbar` (2026-10-25)
+
+`python -m pixelbar text "Hello" --send --yes-i-closed-tempohub` (TempoHub
+closed, user watching) sent one frame that was NOT in any capture:
+
+    2e aa ec e8 00 07 00 05 48 65 6c 6c 6f 7e  (+ zero padding to 64 bytes)
+
+- Reply `2f cc ec e8 00 01 01 a2`, identical to every earlier `e8` reply
+  (confirmed).
+- The user reported that the screen changed to `Hello` (user observation;
+  whether the colour stayed red was not stated). So a frame built purely from
+  the documented format, with content never captured, is accepted (confirmed
+  for 5 ASCII bytes).
+- Text length verified on the device so far: up to 6 UTF-8 bytes (`你好`), 5 for
+  `Hello`. Longer text is unverified; the CLI limits text to `--max-bytes`
+  (default 6) and the hard limit is 55 bytes (one frame).
 
 ## Earlier notes from another session (merged)
 
