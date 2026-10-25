@@ -75,17 +75,24 @@ def frame_differences(steps, captured):
     return {i: [k for k in range(64) if s[1][k] != captured[i][k]] for i, s in enumerate(steps) if s[1] != captured[i]}
 
 
-def load_plan(fixture=FIXTURE, pixel=None):
+def load_plan(fixture=FIXTURE, pixel=None, image=None):
     """Return (steps, checks): steps = [(label, OUT frame, expected reply or None)].
 
-    pixel=(x, y) switches that one pixel on in the image data (stage 3); everything else,
-    including every unknown field, stays as captured.
+    pixel=(x, y) switches that one pixel on in the image data (stage 3); image=<1024 bytes>
+    replaces the whole image data. Everything else, including every unknown field, stays as
+    captured.
     """
+    if pixel is not None and image is not None:
+        raise ValueError("give either a pixel or a whole image, not both")
     with open(fixture, encoding="utf-8") as fh:
         c = json.load(fh)[KEY]
     ef = bytes.fromhex(c["ef_payload"])
     captured_image = bytes.fromhex(c["image_hex"])
-    image = captured_image if pixel is None else upload.set_pixel(captured_image, *pixel)
+    if image is not None:
+        if len(image) != len(captured_image):
+            raise ValueError(f"the image data must be {len(captured_image)} bytes (one 256x32 image)")
+    else:
+        image = captured_image if pixel is None else upload.set_pixel(captured_image, *pixel)
     built = upload.upload_sequence(image, c["type"], c["xx"], tuple(ef[1:4]), ef[7])
     expected = upload.expected_replies(built)
     n = len(built)
@@ -103,8 +110,23 @@ def load_plan(fixture=FIXTURE, pixel=None):
             label, reply = f"17 data seq {i - 2}", expected[i]
         steps.append((label, frame, reply))
     captured_out = [bytes.fromhex(h) for h in c["out"]]
-    if pixel is None:
+    if pixel is None and image == captured_image:
         change_checks = {"OUT frames equal the TempoHub frames of capture 20 (fixture)": built == captured_out}
+    elif pixel is None:
+        diffs = frame_differences(steps, captured_out)
+        old_stream = upload.record_stream(captured_image, c["type"], c["xx"])
+        new_stream = upload.record_stream(image, c["type"], c["xx"])
+        header_bytes = [k for k in range(len(old_stream)) if k % (upload.RECORD_HEADER + upload.RECORD_DATA) < upload.RECORD_HEADER]
+
+        def data_or_checksum_only(i, offsets):
+            checksum_at = 6 + int.from_bytes(steps[i][1][4:6], "big")
+            return 2 <= i <= len(steps) - 2 and all(k == checksum_at or 10 <= k < checksum_at for k in offsets)
+
+        change_checks = {
+            "ef, start and end frames equal the TempoHub frames of capture 20": all(steps[i][1] == captured_out[i] for i in (0, 1, n - 1)),
+            "record headers (T, index, XX XX) equal capture 20's": all(old_stream[k] == new_stream[k] for k in header_bytes),
+            "every differing frame is a data frame and differs only in image bytes and its own checksum": all(data_or_checksum_only(i, o) for i, o in diffs.items()),
+        }
     else:
         diffs = frame_differences(steps, captured_out)
         changed = next(iter(diffs)) if len(diffs) == 1 else None

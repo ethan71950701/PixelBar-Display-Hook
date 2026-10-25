@@ -78,6 +78,11 @@ Workflow and status:
      middle (user-confirmed). The scene now shows the dotted version until
      TempoHub re-uploads it (restore not tried). Budget file
      ~/.pixelbar/stage3_uploads.txt = 1. Each further upload needs the user's OK.
+     Restored through TempoHub (click another scene, then this one): the dot
+     disappeared, text as before (user-confirmed).
+     Prepared (nothing sent): tools/png_upload.py --dry-run converts a 256x32
+     PNG (outside the repo) to the bitmap and shows the whole upload and its
+     differences from capture 20; there is no send path for converted images.
    Characters: only send text from the tested allow-list (see "Design
      principles for the sending CLI" in docs/protocol.md).
    D (step 1 DONE: text "Hello" displayed, user-confirmed; steps 2-3 pending) free input: `python -m pixelbar

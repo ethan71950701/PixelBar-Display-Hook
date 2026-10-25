@@ -1054,9 +1054,73 @@ middle above the text. Confirmed by this test:
 
 Not shown: that all 256 columns and 32 rows are visible, that the edges are not
 cut, where exactly the dot sits, whether the change survives a power cycle,
-whether TempoHub restores the original scene (not tried yet: the scene now
-shows the version with the dot until TempoHub uploads it again), and whether
-the upload writes flash.
+and whether the upload writes flash.
+
+### Restoring the scene through TempoHub (confirmed by this live test)
+
+Afterwards the user restored the scene in TempoHub: clicked another scene
+first, then clicked 「兼职成年人」 again, waited for the progress bar to finish.
+The user's words: `亮点消失了，文字和原来一样` ("the dot disappeared, the text is
+the same as before"). Result: clicking the scene in TempoHub removed our extra
+pixel and the text looked as before. The USB traffic of this click was not
+captured, so what TempoHub sent is not known from this test; it is consistent
+with capture 22, where a second click on a scene uploaded the same data
+again.
+
+## PNG to bitmap converter and dry run (stage 3 preparation, nothing sent)
+
+`pixelbar/image.py` and `tools/png_upload.py --dry-run` (no device path; the
+tool refuses to run without `--dry-run`):
+
+- Input: a PNG of exactly 256x32 pixels, white pixels on a black background; a
+  pixel is lit when its brightness is at or above `--threshold` (default 128;
+  transparent pixels count as black). Any other size is an error; nothing is
+  scaled or cropped. Interlaced or damaged PNG files are errors. No
+  third-party package is used.
+- Output: 1024 bytes in the confirmed layout: 4 pages of 256 bytes, one byte =
+  the 8 pixels of one column, least significant bit on top (`--bit-order
+  lsb-top`, the default). `msb-top` exists as an option for testing the
+  alternative; the tool prints a warning when it is used.
+- The tool prints a `#` / `.` picture of the 256x32 image (with a column ruler
+  and row numbers), then the upload sequence it would produce: capture 20's 25
+  frames in which only the image data is replaced; every unknown field keeps
+  capture 20's value (`T` = `02`, `XX XX` = `0064`, `ef` frame `01 33 66 99 00
+  01 02 21 ff`). It lists the frames that differ from capture 20 and checks
+  that: the `ef`, start and end frames are byte-identical, the record headers
+  are identical, and every differing frame is a data frame whose differing
+  bytes are image bytes and, where it changes, its own checksum. It also shows
+  the upload budget (1 of 5 used before the next upload, which would be the
+  2nd).
+- Demonstrated on a temporary test pattern made for this purpose (a one-pixel
+  frame, a letter F at the top left, "TEST 123" in the middle; kept outside the
+  repository): 21 of the 25 frames differ, all of them data frames; `ef`,
+  start, end and one data frame (seq 11, which has no lit pixel in either
+  image) are identical to capture 20; all checks passed. In one frame (seq 20)
+  the 50 image bytes differ but the frame's checksum is unchanged, because the
+  changes add up to a multiple of 256.
+- Tests build their PNG data in memory; the repository contains no PNG file.
+
+### Planned test image: what each observation would tell (a plan, not a result)
+
+The pattern: a 1-pixel white frame on the outer ring (columns 0 and 255, rows
+0 and 31), a letter F at the top left, `TEST 123` in the centre. None of this
+has been uploaded yet.
+
+| Observation | What it can decide |
+|---|---|
+| All four sides of the frame visible and unbroken | the whole 256x32 area is displayed; a missing side means at least that outer column or row is not visible (cut or hidden); a gap in a line points to a seam or a missing column or row in the panel mapping |
+| The F at the top left, upright and readable | no mirroring, flipping or rotation: columns run left to right, rows top to bottom, and the origin (0, 0) is the top left. The F spans rows 3-16, across the 8-row page boundary, so a wrong bit order within a byte (msb-top) would show the F cut into bands with the halves swapped; this separates `lsb-top` from `msb-top`, which one pixel could not |
+| F mirrored, upside down, or at another corner | mirrored: the column order is reversed; upside down or banded: bit order or page order is wrong; at another corner or rotated: the mapping of pages and columns is transposed |
+| The 3 dark columns left of the F and the 2 dark rows above it, between the F and the frame | the first columns and rows are displayed at the right positions (no offset of the image against the panel) |
+| `TEST 123`: strokes crossing the page boundary at row 16 are continuous | the page order and the bit order are right in the middle of the image too; the digits `1`, `2`, `3` and the `S` cannot be read the same when mirrored |
+| `TEST 123` equally far from the left and right frame (81 columns each side) and from the top and bottom (9 rows each) | column 128 and row 16 are the centre of what is shown (to the precision of the eye) |
+| Strokes two pixels thick stay two pixels thick | no scaling or blurring; pixels are square and uniform |
+| All lit pixels (frame, F, text) the same colour and brightness | the image is drawn in one colour; compared with the colour set for the text before (`33 66 99`) it shows whether the image takes the text colour or a fixed one |
+| Everything else dark, no leftover of the previous display (`Hello`) | the upload replaces the whole picture; a leftover would mean the screen is not cleared |
+| Still image, no flicker or movement | a single-image scene with `XX XX` = `0064` is static; any movement would be new information about what `XX XX` or the scene mode does |
+
+The eye limits these readings; a photo of the screen would make the
+comparison with the preview easier.
 
 ## Unknown fields in the scene upload, and the risk of changing them
 
