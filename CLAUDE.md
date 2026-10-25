@@ -87,6 +87,12 @@ Workflow and status:
      top is confirmed on the screen. Budget file = 2. The image was drawn in the
      same greyish blue (336699) as Hello; restored through TempoHub afterwards
      (screen back to 兼职成年人): both user-confirmed.
+     Upload 3 of 5 DONE 2026-10-25 (same test image as upload 2, same tool and
+     fields): all replies matched; after the speaker was powered off for about
+     one minute (user's estimate) the test image was still shown (user-confirmed).
+     So uploaded images survive a power-off; flash wear per upload is still
+     unknown. Budget file = 3. See "Assessment: write risk of a host-driven
+     slideshow" in docs/protocol.md (assumptions marked). Restore not done.
      Captures 30-33 (animation scenes) analysed read-only: 1 / 2 / 2 / 7 images,
      up to 7448 bytes; XX XX is not tied to the image count (no evidence what
      it is); T == ef p6 in all 8 uploads; the device sets the upload pace

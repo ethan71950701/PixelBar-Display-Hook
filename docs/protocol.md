@@ -1331,6 +1331,82 @@ Over all seven uploads seen so far:
   is sent by the host and differs between scenes, but nothing shows that it is
   an interval.
 
+## Power-cycle test of an uploaded image: upload 3 (confirmed by this live test, 2026-10-25)
+
+Purpose: does an uploaded image survive a power-off of the speaker? Tool and
+data as in upload 2: `python tools/send_png.py C:\pixelbar-raw\test-256x32.png
+--expect-sha 037720be605a --send --yes-i-closed-tempohub`, the same test image
+(bitmap SHA-256 `037720be605a1495`). Before sending, the plan was rebuilt with the
+code of the commit used for upload 2 (`9e01c66`) and with the current code: the
+25 OUT frames and the expected replies were identical in both (same hashes), and
+no file that decides the plan had changed since. Upload 3 of 5. Before it,
+`Hello` in colour `336699` was shown with the existing CLI and the user
+confirmed the screen was `Hello`, greyish blue (`是，請繼續`).
+
+Device side (confirmed): TempoHub process count 0 before the send; 25/25 frames
+written; all 24 expected replies matched exactly; no unsolicited frame, no
+timeout, no retry; 1.53 s, as in upload 2. Upload budget used: 3 of 5.
+
+Then, as planned: the screen was checked, the speaker was powered off
+completely and connected again, and TempoHub was not to be opened. The user's
+words, as typed: `圖片正常，開機了，測試圖，斷電大概1分鐘`. Reading in the order of
+the plan: (1) after the upload the picture was normal (圖片正常: the test image
+was displayed as intended); (2) after reconnecting and starting ("開機了") the
+screen showed the test image (測試圖); (3) the power was off for about one
+minute (斷電大概1分鐘, the user's estimate, not measured). TempoHub was not
+running when checked afterwards (process count 0); the user did not report
+opening it.
+
+Result: the test image was still displayed after the speaker had been powered
+off for about one minute. Stated as the plan required: the image stayed after
+the power-off. This does not show how it is stored (the text `PWRTEST1` also
+stayed after a power-off of at least 10 s, see "Power-cycle test" above), whether
+each upload writes flash, how many uploads the storage survives, or whether the
+speaker has a battery or capacitor that kept something alive (the user said
+the speaker was powered off completely; we do not know whether it has one). The
+screen was not photographed or compared pixel by pixel; "測試圖" is the user's
+word for what was shown.
+
+## Assessment: write risk of a host-driven slideshow (assumptions marked)
+
+Question: could a program make a slow slideshow by uploading one image after
+the other from the PC? What is known (confirmed): an upload of one image takes
+about 1.5 s and 25 frames; the speaker keeps what was uploaded (this section
+above) and the text (`PWRTEST1`) across a power-off; the speaker is busy for
+about 0.1-0.2 s at the start and at the end of an upload and slower at image
+boundaries. Not known: whether an upload writes flash, what the endurance is,
+whether the same place is rewritten each time.
+
+The numbers below are an illustration under ASSUMPTIONS, not measurements:
+
+- Assumption A: every upload erases and rewrites the same flash sectors (no
+  wear levelling, the worst case). Assumption B: the endurance is 10,000 cycles
+  (a low figure) or 100,000 cycles (a common figure for NOR flash); this chip's
+  real value is not known.
+
+| Upload interval | Uploads per day | Days to 10,000 | Days to 100,000 |
+|---|---|---|---|
+| every 10 s | 8,640 | about 1.2 | about 12 |
+| every 1 min | 1,440 | about 7 | about 69 |
+| every 10 min | 144 | about 69 | about 694 (1.9 years) |
+| every 1 h | 24 | about 417 | about 4,167 (11 years) |
+
+- If the assumptions hold, a slideshow that replaces one image every few
+  seconds could use up the storage in days; one image every ten minutes or
+  slower is a different order of magnitude. If the speaker spreads writes
+  (wear levelling) or writes RAM first and flash later, the real figures are
+  better; none of this was measured.
+- A safer design under the same assumptions: put several frames in ONE upload
+  (the speaker accepted 7 images, 7448 bytes, in one upload from TempoHub) and
+  let the speaker play them, instead of one upload per picture. That the
+  speaker plays frames of an upload by itself is the user's description of the
+  animation scenes; playback was never part of a capture, and how the interval
+  is set is not known (see "Animation scenes").
+- Rules that follow whatever the real figures are: upload only when the picture
+  changes; never in a loop without a limit; keep a counter and a daily cap in
+  code (the 5-upload budget file is the test-phase version of this); treat each
+  upload as a possible flash write until shown otherwise.
+
 ## Unknown fields in the scene upload, and the risk of changing them
 
 "Risk" lines are guesses about what could go wrong; none was tested. The
@@ -1350,7 +1426,7 @@ upload should only repeat the captured values.
 | `17` total size | equals records x 133 (1064 = 8 x 133, 2128 = 16 x 133); counts the headers | what the speaker does with a wrong size | a mismatch may make it refuse, wait for more data, or keep a truncated scene |
 | Chunk size 50 | announced by the speaker in its ready reply (`00 32`) | whether it varies by model or firmware | a real upload should read it from the ready reply and stop if it differs from 50 |
 | Aborted upload (no end frame, a chunk missing or not acknowledged) | never happened in the captures | what state the speaker is left in | a partial or damaged scene, or a speaker waiting for the rest of the upload |
-| Persistence and flash | the speaker answered start and end frames after about 0.1-0.2 s and took 115-128 ms for 5 of the 6 image boundaries in capture 33, against 42-48 ms for ordinary chunks (a hint that it does something per image, guess: it stores something) | whether a scene is stored on the device, whether the upload writes flash, how often it may | repeated uploads might wear the flash; a stored scene may be replaced |
+| Persistence and flash | the uploaded test image was still shown after about one minute without power (upload 3, user-confirmed); the speaker answered start and end frames after about 0.1-0.2 s and took 115-128 ms for 5 of the 6 image boundaries in capture 33, against 42-48 ms for ordinary chunks (a hint that it does something per image, guess: it stores something) | whether a scene is stored on the device, whether the upload writes flash, how often it may | repeated uploads might wear the flash; a stored scene may be replaced |
 
 ## Unknowns (open questions, 2026-10-25)
 
