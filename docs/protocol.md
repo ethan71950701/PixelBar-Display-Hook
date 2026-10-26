@@ -2021,6 +2021,93 @@ after a quiet start, and refuses to write), computes the window of every segment
 (end of its upload to end of its 20 s of play, with optional `--lead`/`--trim`),
 and joins the windows in order without changing the speed of the frames.
 
+### Three-segment trial (2026-10-26, user-approved: 「我确认计划和预览，现在做 3 段试跑」, then 「开始」)
+
+Original polarity (no invert), segments 1-3 = pictures 1-60, `XX XX` = `0x01f4`. Sending
+was enabled for this one run only (`film run --send --this-run-only` with the three
+confirmations; `SEND_ENABLED` stays `False` in the code). Before it: TempoHub process
+count 0, the screen showed white `Hello` (CLI, reply as usual), the user confirmed the
+phone was recording in the normal video mode. **First attempt refused before anything
+was sent**: segment 1 (pictures 1-20) is bitmap-identical to upload 22 (hash
+`062242de80f8`), and the "same as the last completed upload" rule stopped it (counter
+still 22, no log). The user chose to repeat it (「2」): only the `ok` line of upload 22
+was removed from `~/.pixelbar/upload_log.jsonl` (backup kept next to it, `limits.json`
+untouched), then the run was started again.
+
+Log `C:\pixelbar-raw\badapple\film_log.jsonl` (outside the repository; wall clock of the
+computer, millisecond precision; `t` = seconds since `run_start`):
+
+| Segment | Pictures | Upload start (wall) | Upload end (wall) | t start - t end | Device replies | Wait |
+|---|---|---|---|---|---|---|
+| 1 | 1-20 | 10:53:18.244 | 10:53:41.674 | 0.047 - 23.485 s | 429/429 frames written, 428 replies matched, no unsolicited frame; the `ef` reply carried the current colour `ffffff`, last data reply `00 03 01 a8`, end reply `00 05` | 22 s, 10:53:41.677 - 10:54:03.691 |
+| 2 | 21-40 | 10:54:03.798 | 10:54:27.571 | 45.610 - 69.375 s | the same: 429/429, 428 matched, none unsolicited | 22 s, 10:54:27.572 - 10:54:49.585 |
+| 3 | 41-60 | 10:54:49.693 | 10:55:13.514 | 91.500 - 115.328 s | the same: 429/429, 428 matched, none unsolicited | 22 s, 10:55:13.515 - 10:55:35.530 |
+
+Upload times 23.17, 23.36 and 23.45 s (the plan used 23.3 s); the run stopped by
+itself at 10:55:35.532 (`--max-uploads 3 reached`, 137.3 s in total). All replies matched
+in all three uploads, no timeout, no exception, nothing was retried; the budget counter went
+from 22 to **25 of 30** (uploads 23, 24, 25; the aborted first attempt did not count).
+Whether the screen showed anything unusual during the three uploads and the passes, and
+whether the recording is usable, was not yet reported by the user at the time of writing
+(**not verified**).
+
+**Redo (the same day, at the user's request).** The user had paused the recording by
+accident in the middle of the first run (the user's words, 「我剛剛中間不小心要暫停了我可以重來一次嗎?」),
+so the three segments were sent again; the first run's log was renamed
+`film_log_run1_interrupted.jsonl` and is not used for cutting. The first start of the redo
+was refused **before anything was sent** by the pre-flight check, which compared
+segment 3 with the last completed upload (segment 3 of the first run): a mistake in
+the check, not in the device; it now judges "the same as the last completed upload"
+along the sequence (segment 1 against the log, each later segment against the one before
+it; the send itself re-checks every segment against the log at its turn; tests added).
+TempoHub was closed (process count 0 after the user closed it from the tray), the screen
+showed `Hello` again (CLI), the user said 「開始」, and the run went through:
+
+| Segment | Pictures | Upload start (wall) | Upload end (wall) | t start - t end | Device replies | Wait |
+|---|---|---|---|---|---|---|
+| 1 | 1-20 | 11:03:05.891 | 11:03:29.804 | 0.046 - 23.953 s | 429/429 frames written, 428 replies matched, none unsolicited | 22 s, 11:03:29.808 - 11:03:51.822 |
+| 2 | 21-40 | 11:03:51.888 | 11:04:15.895 | 46.046 - 70.046 s | the same | 22 s, 11:04:15.897 - 11:04:37.913 |
+| 3 | 41-60 | 11:04:38.000 | 11:05:01.834 | 92.156 - 115.984 s | the same | 22 s, 11:05:01.836 - 11:05:23.851 |
+
+Upload times 23.53, 23.56 and 23.55 s; stopped by itself at 11:05:23.853 (`--max-uploads 3
+reached`, 138.0 s). Counter: **28 of 30** (uploads 26, 27, 28). All replies matched, no timeout,
+no retry. Cycle length segment start to next segment start: 45.84 s and 46.11 s (the plan:
+45.3 s; the difference is the 0.05-0.1 s the program takes between segments plus the slightly
+longer uploads).
+
+### Post-processing of the redo recording (2026-10-26)
+
+The user's phone recording (normal video mode, 1280x720, 30 fps, 257.2 s, 778 MB, in
+`Downloads`, not in the repository) covers the whole redo. The user's anchor, 「大概1:30」,
+fits: the first screen change in the video is at **86.91 s** and shows the text
+**「图片上传中...」** (the dots animate; later 「图片上传中」 / 「图片上传中.」): that is what the
+speaker shows while a scene is being uploaded (**confirmed from the recording**; before, the
+white `Hello`). The phone's clock was about 50 s behind the computer (file name 11:00:45 vs the
+computer's 11:01:36; consistency with the end of the recording, not used for the cutting).
+
+Calibration: the picture changes of a pass sit on a 1-second grid (events 112.37, 113.37, ... in
+pass 1). Locking that grid (circular mean, concentration R 0.68-0.72, residual sd 0.14 s of the
+detector) gives the start of the three passes at video **110.37, 156.48 and 202.42 s**, which is the
+log's upload end plus a constant **86.42 s** within -0.01, +0.02 and +0.01 s. The next upload's
+text appears at 132.41 s (log + 86.42 = 132.47) and 178.5 s (178.58). Only the very first
+appearance, 86.91 s, is 0.44 s later than the same mapping gives (86.47): the first upload replaced a
+plain text, the later ones a scene (an interpretation: the first screen change is slower;
+not tested). So the anchor read from the first appearance of the upload text is about 0.45 s too late;
+the script was run with the anchor **86.466 s** (= 86.42 s + the log time of the first upload start, 0.046 s).
+
+Windows (the 20 s of each pass, 20 pictures x 1.0 s): segment 1 **110.37-130.37 s**, segment 2 **156.47-176.47 s**,
+segment 3 **202.40-222.40 s**; the upload text is gone before each window (it disappears at about 110.1-110.3 s in
+segment 1) and the next upload's text comes 2.0 s after each window ends (132.41 s), so the 2-s buffers hold the changeover.
+Draft `C:\pixelbar-raw\badapple\draft_3segments.mp4` (outside the repository): the windows joined in order, 1800
+frames, 30 fps, **60.00 s** (3 x 20.00 s), 1280x720, H.264, re-encoded without changing the frame spacing (no speed
+change). Checked by looking at frames at 0.5, 10, 19.5, 20.5, 30, 39.5, 40.5, 50 and 59.5 s: no upload text at any
+of them, the first pictures of each segment are the dark opening pictures of the video and the last ones small
+pictures, as the frame lists say. The tool's first write attempt failed (`mpeg4` could not be opened at 1280x720 without a
+bit rate); it now uses `libx264` and falls back to `mpeg4` with a bit rate.
+
+Not checked: that the joins look smooth to the eye (the user decides from the draft), the exact picture at the cut
+(an edge of up to one camera frame = 33 ms), and the quality of the picture of a 43x32-pixel block on a 720p recording.
+
 **Not verified yet**: that the speaker plays a 20-picture scene at exactly 1.0 s per
 picture over a whole 20-s pass (only 9 changes of one upload were measured); what the
 screen shows while an upload is running (the "uploading" picture the alignment idea

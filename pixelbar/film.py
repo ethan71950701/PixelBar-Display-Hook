@@ -237,11 +237,14 @@ class Log:
         return record
 
 
-def run_film(segs, do_upload, sleep, log, max_uploads=DEFAULT_MAX_UPLOADS, wait_seconds=SEGMENT * SECONDS_PER_PICTURE + BUFFER_SECONDS):
+def run_film(segs, do_upload, sleep, log, max_uploads=DEFAULT_MAX_UPLOADS, wait_seconds=SEGMENT * SECONDS_PER_PICTURE + BUFFER_SECONDS,
+             describe=None, stop_requested=None):
     """Upload the segments one after the other: upload, check every reply, wait for the play and the buffer, next.
 
     `do_upload(seg)` must return the result dict of upload_replay.run (ok, written, matched, elapsed, reason, ...).
-    The first mismatch, timeout or exception stops everything (no retry); at most `max_uploads` uploads are made.
+    The first mismatch, timeout or exception stops everything (no retry, nothing is sent again); at most `max_uploads`
+    uploads are made. `describe(seg)` (optional) gives the summary logged before each upload; `stop_requested()` (optional)
+    is looked at before every upload and every second of the waits: when it is true the run stops there.
     """
     log("run_start", segments=len(segs), max_uploads=max_uploads, wait_seconds=wait_seconds)
     done = 0
@@ -249,6 +252,11 @@ def run_film(segs, do_upload, sleep, log, max_uploads=DEFAULT_MAX_UPLOADS, wait_
         if done >= max_uploads:
             log("stopped", reason=f"--max-uploads {max_uploads} reached")
             return {"done": done, "stopped": "max-uploads", "ok": True}
+        if stop_requested and stop_requested():
+            log("stopped", reason="stop requested before the upload")
+            return {"done": done, "stopped": "stop requested", "ok": False}
+        if describe:
+            log("segment_summary", segment=seg["index"], summary=describe(seg))
         log("upload_start", segment=seg["index"], first=seg["first"], last=seg["last"])
         try:
             result = do_upload(seg)
@@ -257,12 +265,23 @@ def run_film(segs, do_upload, sleep, log, max_uploads=DEFAULT_MAX_UPLOADS, wait_
             return {"done": done, "stopped": f"error: {err!r}", "ok": False}
         done += 1
         log("upload_end", segment=seg["index"], ok=result["ok"], written=result["written"], matched=result["matched"],
-            elapsed=round(result["elapsed"], 3), reason=result["reason"], unsolicited=len(result.get("unsolicited", [])))
+            elapsed=round(result["elapsed"], 3), reason=result["reason"], unsolicited=len(result.get("unsolicited", [])),
+            replies=result.get("replies", []))
         if not result["ok"]:
             log("stopped", reason=f"upload {seg['index']} failed: {result['reason']}")
             return {"done": done, "stopped": result["reason"], "ok": False}
         log("wait_start", segment=seg["index"], seconds=wait_seconds)
-        sleep(wait_seconds)
+        if stop_requested is None:
+            sleep(wait_seconds)
+        else:
+            left = wait_seconds
+            while left > 1e-9:
+                if stop_requested():
+                    log("stopped", reason="stop requested during the wait")
+                    return {"done": done, "stopped": "stop requested", "ok": False}
+                step = min(1.0, left)
+                sleep(step)
+                left -= step
         log("wait_end", segment=seg["index"])
     log("run_end", uploads=done)
     return {"done": done, "stopped": None, "ok": True}
@@ -281,14 +300,36 @@ def make_uploader(files, xx=XX, open_device=device.open_device, log=print):
         failed = [name for name, ok in checks.items() if not ok]
         if failed:
             raise FilmError(f"plan check failed for segment {seg['index']}: {failed}")
-        return image_send.send_upload(steps, bitmap, open_device, xx=use, log=log)
+        lines = []
+
+        def keep(line):
+            lines.append(line)
+            log(line)
+
+        result = dict(image_send.send_upload(steps, bitmap, open_device, xx=use, log=keep))
+        result["replies"] = lines[:2] + lines[-3:]           # the first and the last lines of the exchange go into the film log
+        return result
     return do_upload
 
 
+QUESTIONS = ("Is TempoHub fully closed (also in the system tray)? [y/N] ",
+             "Is the phone recording in the NORMAL video mode (not slow motion), already running, and can it see the screen? [y/N] ",
+             "Does the screen show Hello right now? [y/N] ")
+TRIAL_MAX_UPLOADS = 3                 # the most a one-run send may make (the user's trial limit)
+
+
+def tempohub_running():
+    """True when TempoHub or another Edifier program is in the process list."""
+    if os.name != "nt":
+        return False
+    import subprocess
+    out = subprocess.run(["tasklist"], capture_output=True, text=True).stdout.lower()
+    return "tempohub" in out or "edifier" in out
+
+
 def confirm_filming(ask=input):
-    """Both questions must be answered with y before anything is sent."""
-    questions = ("Is TempoHub fully closed (also in the system tray)? [y/N] ",
-                 "Is the phone recording in the NORMAL video mode (not slow motion) and already running? [y/N] ")
+    """All three questions must be answered with y before anything is sent."""
+    questions = QUESTIONS
     for question in questions:
         try:
             if ask(question).strip().lower() != "y":
@@ -342,10 +383,67 @@ def cmd_plan(args):
     print("this is a plan only: nothing was sent and no limit was changed")
 
 
+def send_allowed(args):
+    """Sending is off in the code (SEND_ENABLED); it is enabled for ONE run only by --this-run-only, never kept."""
+    return SEND_ENABLED or bool(getattr(args, "this_run_only", False))
+
+
+def real_run(args, files, p):
+    """The 3-segment trial: checks, three questions, then the uploads one after the other. Nothing is remembered afterwards."""
+    if args.max_uploads > TRIAL_MAX_UPLOADS:
+        raise SystemExit(f"error: a run with --send makes at most {TRIAL_MAX_UPLOADS} uploads; --max-uploads {args.max_uploads} is refused")
+    chosen = segments(len(files))[: args.max_uploads]
+    if not p["trial_fits"]:
+        raise SystemExit(f"error: the quota is {p['used']} of {p['total_limit']} used, {p['available']} left, the run needs {p['trial_uploads']}; "
+                         "nothing was sent (only you change limits.json)")
+    previous = limits.UploadLog(limits.state_path(limits.LOG_FILE)).last_ok_sha()    # the last completed upload, from the log
+    for seg in chosen:                                          # every segment is checked before the first one is sent
+        bitmap = segment_bitmap(files, seg)
+        use = XX if seg["pictures"] > 1 else None
+        _, checks = upload_replay.load_plan(image=bitmap, xx=use)
+        failed = [name for name, ok in checks.items() if not ok]
+        sha = image_send.identity_sha256(bitmap, use)
+        problems = limits.problems_for_upload(sha)
+        # "the same as the last completed upload" is judged along the sequence: segment 1 against the log, every later
+        # segment against the one sent just before it (the real send re-checks each one against the log at its turn)
+        problems = [p for p in problems if "same as the last completed upload" not in p]
+        if sha == previous:
+            problems.append("this bitmap is the same as the last completed upload; the picture would not change")
+        previous = sha
+        if failed or problems:
+            raise SystemExit(f"error: segment {seg['index']} is refused ({failed or problems}); nothing was sent")
+    if tempohub_running():
+        raise SystemExit("error: TempoHub (or an Edifier program) is still running: close it fully, also in the system tray; nothing was sent")
+    answers = {"tempohub": args.yes_tempohub_closed, "phone": args.yes_phone_recording, "hello": args.yes_hello_shown}
+    if not all(answers.values()):
+        if not sys.stdin.isatty() or not confirm_filming():
+            raise SystemExit("not confirmed (the three --yes-... options, or answer the three questions); nothing was sent")
+    log_path = args.log or os.path.join(args.dir, "film_log.jsonl")
+    log = Log(log_path, lambda: (datetime.datetime.now(), time.monotonic()))
+    stop_file = args.stop_file
+
+    def describe(seg):
+        bitmap = segment_bitmap(files, seg)
+        share = sum(bin(b).count("1") for b in bitmap) / (len(bitmap) * 8)
+        return (f"pictures {seg['first']}-{seg['last']} ({seg['pictures']}), XX XX 0x{XX:04x}, lit share {share * 100:.1f}%, "
+                f"hash {image_send.identity_sha256(bitmap, XX if seg['pictures'] > 1 else None)[:12]}, expected {segment_times(seg)['upload']:.1f} s")
+
+    stop = (lambda: os.path.exists(stop_file)) if stop_file else (lambda: False)
+    print(f"log: {log_path}; to stop, create the file {stop_file or '(no stop file given)'}")
+    result = run_film(segments(len(files)), make_uploader(files, log=lambda line: None), time.sleep, log, args.max_uploads,
+                      describe=describe, stop_requested=stop)
+    if not result["ok"]:
+        print(f"STOPPED after {result['done']} upload(s): {result['stopped']}. Nothing was retried and nothing more was sent. "
+              "The speaker may show an unfinished or the last complete scene; click an official scene in TempoHub to restore it.")
+    else:
+        print(f"{result['done']} upload(s) done. Stop the recording now, then click an official scene in TempoHub to restore the screen.")
+    return result
+
+
 def cmd_run(args):
-    if args.send and not SEND_ENABLED:
-        raise SystemExit("sending is not enabled in this version: confirm the plan and the previews first, then the 3-segment trial is "
-                         "enabled in a separate step. Nothing was sent. Use --rehearse to see the timeline.")
+    if args.send and not send_allowed(args):
+        raise SystemExit("sending is not enabled: it is enabled for one run only with --this-run-only (and the three confirmations). "
+                         "Nothing was sent. Use --rehearse to see the timeline.")
     if args.send and args.rehearse:
         raise SystemExit("--send and --rehearse contradict each other")
     files = frame_files(os.path.join(args.dir, "frames"))
@@ -356,6 +454,10 @@ def cmd_run(args):
     p = plan(n, used, total, args.max_uploads)
     print(format_plan(p))
     segs = segments(n)                      # run_film itself stops at --max-uploads
+    if args.send:
+        if args.pictures:
+            raise SystemExit("--pictures is for plans and rehearsals only; a real run uses the picture files")
+        return real_run(args, files, p)
     if not args.rehearse:
         raise SystemExit("choose --rehearse (prints the timeline, sends nothing)")
     if not p["trial_fits"]:
@@ -399,7 +501,13 @@ def add_arguments(sub):
         q.add_argument("--pictures", type=int, default=0, help="plan for N pictures instead of counting the PNG files")
         q.add_argument("--max-uploads", type=int, default=DEFAULT_MAX_UPLOADS, help=f"hard limit of uploads in one run (default {DEFAULT_MAX_UPLOADS})")
     r.add_argument("--rehearse", action="store_true", help="print the timeline on a virtual clock; sends nothing")
-    r.add_argument("--send", action="store_true", help="NOT ENABLED in this version")
+    r.add_argument("--send", action="store_true", help="really upload (3 segments at most); needs --this-run-only and the three confirmations")
+    r.add_argument("--this-run-only", action="store_true", help="enable sending for this one run (SEND_ENABLED in the code stays False)")
+    r.add_argument("--yes-tempohub-closed", action="store_true")
+    r.add_argument("--yes-phone-recording", action="store_true", help="the phone records in the normal video mode and sees the screen")
+    r.add_argument("--yes-hello-shown", action="store_true", help="the screen shows Hello")
+    r.add_argument("--log", default=None, help="the film log (default: film_log.jsonl in --dir)")
+    r.add_argument("--stop-file", default=None, help="the run stops at the next check when this file exists")
 
 
 def cli(args):

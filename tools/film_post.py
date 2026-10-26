@@ -10,6 +10,12 @@ speaker shows an "uploading" picture then (what it looks like is not known yet);
 without it the script prints a GUESS (the first big change on the screen after the recording starts) which has to be
 checked by looking at the video at that second before anything is cut.
 
+What the first trial showed (docs/protocol.md): the speaker shows the text 「图片上传中...」 (the dots move) during an upload.
+The first upload, which replaced a plain text, showed it about 0.45 s AFTER the log's upload start, the later ones (scene
+replaced by scene) at the log's time within 0.1 s; so the anchor read from the first appearance of that text is about 0.45 s
+too late. The passes are the better reference: each lasts exactly 20 pictures x 1.0 s from the end of its upload, and the
+picture changes of a pass fall on a 1-second grid that tells the true start to about 0.02 s (see the trial in the docs).
+
 Output: for every upload the window of the recording in which the segment was played (from the end of the upload to the
 end of the play, 20 s = 20 pictures at 1 s each), --lead seconds later at the start and --trim seconds earlier at the end
 if the edges need it. The windows are joined in order. The speed is never changed: frames keep their time spacing inside a
@@ -97,7 +103,11 @@ def concat(video_path, wins, out_path):
     with av.open(video_path) as src, av.open(out_path, "w") as dst:
         stream = src.streams.video[0]
         rate = stream.average_rate or 30
-        out_stream = dst.add_stream("mpeg4", rate=rate)
+        try:
+            out_stream = dst.add_stream("libx264", rate=rate)            # preferred: good quality at a sane size
+        except Exception:
+            out_stream = dst.add_stream("mpeg4", rate=rate)
+            out_stream.bit_rate = 8_000_000                               # mpeg4 refuses to open at 1280x720 without one
         out_stream.width, out_stream.height, out_stream.pix_fmt = stream.codec_context.width, stream.codec_context.height, "yuv420p"
         index = 0
         for frame in src.decode(stream):

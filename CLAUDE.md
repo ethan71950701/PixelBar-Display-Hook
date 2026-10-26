@@ -136,6 +136,9 @@ Workflow and status:
      polarity: --no-invert --fit contain threshold 128; lit share max 16.8%, mean
      7.6%, none above 25%; `film stats`) are in C:\pixelbar-raw\badapple\ (outside the repo); the
      full run needs 11 uploads, 8 are left (22 of 30): the user raises limits.json.
+     3-segment trial DONE 2026-10-26 (`film run --send --this-run-only`, SEND_ENABLED stays False): uploads 26-28, all
+     replies matched, 28 of 30 used; the device shows 「图片上传中...」 while uploading; draft cut of the recording:
+     tools/film_post.py with a calibrated anchor (docs/protocol.md "Post-processing"). Full video still needs limits.json raised.
      Multi-picture uploads: `python -m pixelbar animation --frames N` (1-20,
      generated test animation, dry run by default; plan checks in
      upload_replay._multi_image_checks; exchange time limit max(30 s, 5 s +

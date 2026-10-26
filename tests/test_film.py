@@ -18,7 +18,7 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
 
 from pixelbar import __main__ as cli  # noqa: E402
-from pixelbar import device, film, image, limits, testanim  # noqa: E402
+from pixelbar import device, film, image, image_send, limits, testanim  # noqa: E402
 import film_post  # noqa: E402
 
 try:
@@ -180,8 +180,31 @@ class RunTests(unittest.TestCase):
         self.assertIn("read error", result["stopped"])
         self.assertEqual(self.uploaded, [1])
 
-    def test_confirmation_needs_both_answers(self):
-        for answers, expected in ((["y", "y"], True), (["y", "n"], False), (["n", "y"], False), (["", ""], False), (["y"], False)):
+    def test_a_stop_request_stops_before_the_next_upload_and_during_the_wait(self):
+        flags = {"stop": False}
+
+        def upload(seg):
+            result = self.ok_upload(seg)
+            if seg["index"] == 2:
+                flags["stop"] = True                                     # the user says stop while segment 2 is being sent
+            return result
+
+        result = film.run_film(self.segs, upload, self.sleep, self.log, max_uploads=5, stop_requested=lambda: flags["stop"])
+        self.assertEqual(self.uploaded, [1, 2])                         # nothing after the stop, no retry, no resend
+        self.assertEqual((result["ok"], result["stopped"]), (False, "stop requested"))
+        self.assertEqual(self.sleeps, [1.0] * 22)                       # the wait of segment 1 ran in one-second slices; segment 2's stopped at once
+        result = film.run_film(self.segs, self.ok_upload, self.sleep, self.log, max_uploads=5, stop_requested=lambda: True)
+        self.assertEqual(result["done"], 0)
+
+    def test_the_summary_is_logged_before_each_upload(self):
+        film.run_film(self.segs[:1], self.ok_upload, self.sleep, self.log, max_uploads=1, describe=lambda seg: f"segment {seg['index']} summary")
+        text = "\n".join(self.events)
+        self.assertLess(text.index("segment_summary"), text.index("upload_start"))
+        self.assertIn("segment 1 summary", text)
+
+    def test_confirmation_needs_all_answers(self):
+        for answers, expected in ((["y", "y", "y"], True), (["y", "y", "n"], False), (["y", "n", "y"], False), (["n", "y", "y"], False),
+                                  (["", "", ""], False), (["y", "y"], False)):
             with self.subTest(answers=answers):
                 it = iter(answers)
 
@@ -252,6 +275,136 @@ class CliTests(unittest.TestCase):
             self.assertTrue(result["ok"], result)
             stream = b"".join(f[10:6 + int.from_bytes(f[4:6], "big")] for f in devices[0].writes[2:-2])
             self.assertIn(bytes([2, 0, 0, 0x01, 0xF4]), stream)                  # XX XX = 0x01f4 in the record headers
+
+
+class RealRunTests(unittest.TestCase):
+    """`film run --send --this-run-only` with a fake uploader, a fake process list and a fake sleep: nothing real is touched."""
+
+    yes = ("--this-run-only", "--yes-tempohub-closed", "--yes-phone-recording", "--yes-hello-shown")
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.state = os.path.join(self.dir.name, "state")
+        frames = os.path.join(self.dir.name, "frames")
+        os.makedirs(frames)
+        for k in range(100):                                                       # 5 segments of 20 pictures
+            with open(os.path.join(frames, film.FRAME_NAME.format(k + 1)), "wb") as fh:
+                fh.write(image.rows_to_png(testanim.frame_rows((k + (k // 20) * 3) % 20), 1))
+        self.uploads, self.sleeps = [], []
+        self.running = False
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.object(limits, "STATE_DIR", self.state))
+        stack.enter_context(mock.patch.object(film, "tempohub_running", lambda: self.running))
+        stack.enter_context(mock.patch.object(film.time, "sleep", lambda s: self.sleeps.append(s)))
+
+        def fake_make_uploader(files, **kw):
+            def do_upload(seg):
+                self.uploads.append(seg["index"])
+                return {"ok": True, "written": 429, "matched": 428, "elapsed": 23.3, "reason": None, "unsolicited": [],
+                        "replies": ["first", "last"]}
+            return do_upload
+
+        stack.enter_context(mock.patch.object(film, "make_uploader", fake_make_uploader))
+
+    def run_cli(self, *extra, expect_exit=False):
+        argv = ["film", "run", "--dir", self.dir.name, "--send", *extra]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            if expect_exit:
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(argv)
+                return out.getvalue() + str(ctx.exception)
+            cli.main(argv)
+        return out.getvalue()
+
+    def test_the_default_stays_off_and_each_condition_is_needed(self):
+        self.assertFalse(film.SEND_ENABLED)
+        self.assertIn("not enabled", self.run_cli("--yes-tempohub-closed", expect_exit=True))              # no --this-run-only
+        with mock.patch.object(sys, "stdin", io.StringIO("")):
+            self.assertIn("not confirmed", self.run_cli("--this-run-only", expect_exit=True))              # no confirmations, no terminal
+            for missing in ("--yes-tempohub-closed", "--yes-phone-recording", "--yes-hello-shown"):
+                with self.subTest(missing=missing):
+                    args = [a for a in self.yes if a != missing]
+                    self.assertIn("not confirmed", self.run_cli(*args, expect_exit=True))
+        self.assertIn("at most 3 uploads", self.run_cli(*self.yes, "--max-uploads", "4", expect_exit=True))
+        self.running = True
+        self.assertIn("still running", self.run_cli(*self.yes, expect_exit=True))
+        self.assertEqual((self.uploads, self.sleeps), ([], []))
+        self.assertFalse(film.SEND_ENABLED)
+
+    def log_ok(self, sha):
+        os.makedirs(self.state, exist_ok=True)
+        with open(os.path.join(self.state, "upload_log.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"date": "2026-10-26", "sha256": sha, "status": "ok", "reason": None}) + "\n")
+
+    def test_the_repeat_rule_follows_the_sequence_not_the_whole_run(self):
+        files = film.frame_files(os.path.join(self.dir.name, "frames"))
+        segs = film.segments(len(files))
+        shas = [image_send.identity_sha256(film.segment_bitmap(files, s), film.XX) for s in segs]
+        for k in range(100):
+            with open(files[k], "wb") as fh:
+                fh.write(image.rows_to_png(testanim.frame_rows((k + (k // 20) * 3) % 20), 1))
+        shas = [image_send.identity_sha256(film.segment_bitmap(files, s), film.XX) for s in segs]
+        self.assertEqual(len(set(shas[:3])), 3)
+        self.log_ok(shas[2])                                          # the last completed upload equals segment 3 of an earlier run
+        text = self.run_cli(*self.yes)
+        self.assertEqual(self.uploads, [1, 2, 3])                     # fine: segment 1 differs from it, 2 and 3 from their predecessors
+        self.assertIn("3 upload(s) done", text)
+
+    def test_a_segment_equal_to_the_last_completed_upload_is_still_refused(self):
+        files = film.frame_files(os.path.join(self.dir.name, "frames"))
+        for k in range(100):
+            with open(files[k], "wb") as fh:
+                fh.write(image.rows_to_png(testanim.frame_rows((k + (k // 20) * 3) % 20), 1))
+        self.log_ok(image_send.identity_sha256(film.segment_bitmap(files, film.segments(len(files))[0]), film.XX))
+        self.assertIn("same as the last completed upload", self.run_cli(*self.yes, expect_exit=True))
+        self.assertEqual(self.uploads, [])
+
+    def test_the_quota_is_never_exceeded(self):
+        os.makedirs(self.state)
+        with open(os.path.join(self.state, "stage3_uploads.txt"), "w") as fh:
+            fh.write("28")                                                         # 2 left, 3 needed
+        with open(os.path.join(self.state, "limits.json"), "w") as fh:
+            json.dump({"total": 30, "per_day": 1000}, fh)
+        text = self.run_cli(*self.yes, expect_exit=True)
+        self.assertIn("2 left, the run needs 3", text)
+        self.assertEqual(self.uploads, [])
+        with open(os.path.join(self.state, "limits.json")) as fh:                  # the limit file is not touched
+            self.assertEqual(json.load(fh), {"total": 30, "per_day": 1000})
+
+    def test_three_uploads_with_a_log_and_nothing_left_enabled(self):
+        text = self.run_cli(*self.yes)
+        self.assertEqual(self.uploads, [1, 2, 3])
+        self.assertEqual(self.sleeps, [1.0] * 66)                                  # 3 x 22 s, in one-second slices (the stop check)
+        self.assertIn("3 upload(s) done", text)
+        self.assertIn("click an official scene in TempoHub", text)
+        with open(os.path.join(self.dir.name, "film_log.jsonl"), encoding="utf-8") as fh:
+            records = [json.loads(line) for line in fh]
+        starts = [r for r in records if r["event"] == "upload_start"]
+        ends = [r for r in records if r["event"] == "upload_end"]
+        self.assertEqual(([r["segment"] for r in starts], [r["segment"] for r in ends]), ([1, 2, 3], [1, 2, 3]))
+        self.assertTrue(all(len(r["wall"]) == 23 and r["wall"][10] == "T" for r in starts + ends))     # to the millisecond
+        self.assertEqual(ends[0]["replies"], ["first", "last"])
+        summaries = [r["summary"] for r in records if r["event"] == "segment_summary"]
+        self.assertEqual(len(summaries), 3)
+        self.assertTrue(all("XX XX 0x01f4" in s and "lit share" in s and "hash" in s for s in summaries))
+        self.assertFalse(film.SEND_ENABLED)
+
+    def test_the_stop_file_stops_the_run(self):
+        stop = os.path.join(self.dir.name, "stop")
+
+        def sleeping(seconds):
+            self.sleeps.append(seconds)
+            if len(self.sleeps) == 5:
+                open(stop, "w").close()                                             # the user says stop during the first wait
+
+        with mock.patch.object(film.time, "sleep", sleeping):
+            text = self.run_cli(*self.yes, "--stop-file", stop)
+        self.assertEqual(self.uploads, [1])
+        self.assertIn("STOPPED after 1 upload(s): stop requested", text)
+        self.assertIn("Nothing was retried", text)
 
 
 @unittest.skipIf(av is None, "PyAV or Pillow is not installed")
