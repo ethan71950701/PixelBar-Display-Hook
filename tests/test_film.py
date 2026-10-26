@@ -76,6 +76,38 @@ class PlanTests(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(folder, "state")))
 
 
+class StatsTests(unittest.TestCase):
+    def make_frames(self, folder, shares):
+        os.makedirs(folder, exist_ok=True)
+        for k, lit_rows in enumerate(shares):
+            rows = [[1 if (y < lit_rows and x < 256) else 0 for x in range(256)] for y in range(32)]
+            with open(os.path.join(folder, film.FRAME_NAME.format(k + 1)), "wb") as fh:
+                fh.write(image.rows_to_png(rows, 1))
+
+    def test_statistics_and_overview_of_synthetic_pictures(self):
+        with tempfile.TemporaryDirectory() as folder:
+            frames = os.path.join(folder, "frames")
+            self.make_frames(frames, [0, 4, 8, 16, 32, 0, 2, 8])               # lit rows of 32: 0, 12.5%, 25%, 50%, 100% ...
+            shares = film.lit_statistics(frames)
+            self.assertEqual(shares, [0, 4 / 32, 8 / 32, 16 / 32, 1.0, 0, 2 / 32, 8 / 32])
+            text = film.format_statistics(shares)
+            self.assertIn("max 100.0% (picture 5", text)
+            self.assertIn("pictures above 25%: 2 (4, 5)", text)                # 25% itself is not above 25%
+            self.assertIn("completely dark: 2", text)
+            self.assertEqual(film.format_statistics([]), "no pictures")
+            before = sorted(os.listdir(frames))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                cli.main(["film", "stats", "--dir", folder])
+            self.assertIn("nothing was changed or sent", out.getvalue())
+            self.assertEqual(sorted(os.listdir(frames)), before)               # statistics change nothing
+            path = os.path.join(folder, "overview.png")
+            self.assertEqual(film.write_overview(frames, path, every=2, cols=2), 4)
+            with open(path, "rb") as fh:
+                width, height, _ = image.decode_png(fh.read())
+            self.assertEqual((width, height), (2 * 259 + 3, 2 * 35 + 3))
+
+
 class RunTests(unittest.TestCase):
     def setUp(self):
         self.t = {"now": 0.0}

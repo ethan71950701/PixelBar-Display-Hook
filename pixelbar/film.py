@@ -160,6 +160,50 @@ def write_sheets(frames_dir, sheet_dir, size=SEGMENT, scale=2):
     return out
 
 
+def write_overview(frames_dir, path, every=4, cols=5):
+    """One PNG with every `every`-th picture of the whole video (1 pixel per screen pixel, grey gaps), to see the look at a glance."""
+    files = frame_files(frames_dir)[::every]
+    if not files:
+        raise FilmError("there are no pictures to show")
+    pictures = [image.png_to_pixels(open(f, "rb").read()) for f in files]
+    rows_n = (len(pictures) + cols - 1) // cols
+    gap, w, h = 3, 256, 32
+    canvas = [[90] * (cols * (w + gap) + gap) for _ in range(rows_n * (h + gap) + gap)]
+    for i, pic in enumerate(pictures):
+        top, left = gap + (i // cols) * (h + gap), gap + (i % cols) * (w + gap)
+        for y in range(h):
+            canvas[top + y][left:left + w] = [255 if v else 0 for v in pic[y]]
+    with open(path, "wb") as fh:
+        fh.write(image.encode_png_gray(canvas))
+    return len(pictures)
+
+
+def lit_statistics(frames_dir):
+    """Share of lit pixels of every picture (0..1), read from the PNG files; changes nothing."""
+    out = []
+    for path in frame_files(frames_dir):
+        rows = image.png_to_pixels(open(path, "rb").read())
+        out.append(sum(map(sum, rows)) / (prepare.WIDTH * prepare.HEIGHT))
+    return out
+
+
+def format_statistics(shares, size=SEGMENT):
+    if not shares:
+        return "no pictures"
+    n = len(shares)
+    peak = max(range(n), key=lambda i: shares[i])
+    over = [i + 1 for i, v in enumerate(shares) if v > 0.25]
+    lines = [f"{n} pictures: lit share max {shares[peak] * 100:.1f}% (picture {peak + 1}, {shares[peak] * prepare.WIDTH * prepare.HEIGHT:.0f} of "
+             f"{prepare.WIDTH * prepare.HEIGHT} pixels), mean {sum(shares) / n * 100:.1f}%, median {sorted(shares)[n // 2] * 100:.1f}%, "
+             f"pictures above 25%: {len(over)}{'' if not over else ' (' + ', '.join(map(str, over[:20])) + ')'}",
+             f"completely dark: {sum(1 for v in shares if v == 0)}, above 10%: {sum(1 for v in shares if v > 0.10)}, above 15%: {sum(1 for v in shares if v > 0.15)}",
+             f"{'seg':>3} {'pictures':>10} {'max':>7} {'mean':>7}"]
+    for seg in segments(n, size):
+        part = shares[seg["first"] - 1:seg["last"]]
+        lines.append(f"{seg['index']:>3} {seg['first']:>4}-{seg['last']:<5} {max(part) * 100:>6.1f}% {sum(part) / len(part) * 100:>6.1f}%")
+    return "\n".join(lines)
+
+
 def segment_bitmap(files, seg):
     """The bitmap (1024 bytes per picture) of one segment from its PNG files; every file must be a 256x32 black-and-white PNG."""
     data = b""
@@ -274,10 +318,19 @@ def cmd_frames(args):
         n = extract_frames(args.video, out, fps=1.0, fit=args.fit, invert=not args.no_invert, mode=args.mode,
                            threshold=args.threshold, progress=print)
         sheets = write_sheets(out, os.path.join(args.dir, "preview"))
+        write_overview(out, os.path.join(args.dir, "preview", "overview_every4th.png"))
     except (video.VideoError, prepare.PrepareError, FilmError) as err:
         raise SystemExit(f"error: {err}")
-    print(f"{n} pictures (1 per second) written to {out}; {len(sheets)} contact sheets (one per segment of {SEGMENT}) in "
-          f"{os.path.join(args.dir, 'preview')}. Look at them before anything is uploaded. Nothing was sent.")
+    print(f"{n} pictures (1 per second) written to {out}; {len(sheets)} contact sheets (one per segment of {SEGMENT}) and "
+          f"overview_every4th.png in {os.path.join(args.dir, 'preview')}. Look at them before anything is uploaded. Nothing was sent.")
+
+
+def cmd_stats(args):
+    shares = lit_statistics(os.path.join(args.dir, "frames"))
+    if not shares:
+        raise SystemExit("error: no pictures found; run `film frames` first")
+    print(format_statistics(shares))
+    print("statistics only: nothing was changed or sent")
 
 
 def cmd_plan(args):
@@ -337,6 +390,8 @@ def add_arguments(sub):
     f.add_argument("--mode", choices=prepare.MODES, default="threshold")
     f.add_argument("--threshold", type=int, default=prepare.DEFAULT_THRESHOLD)
     f.add_argument("--overwrite", action="store_true")
+    st = fs.add_parser("stats", help="share of lit pixels per picture (max, mean, how many above 25%); changes nothing")
+    st.add_argument("--dir", default=DEFAULT_DIR)
     p = fs.add_parser("plan", help="print the segments, times and the upload quota needed (changes nothing)")
     r = fs.add_parser("run", help="the capture sequence (--rehearse only in this version)")
     for q in (p, r):
@@ -350,6 +405,8 @@ def add_arguments(sub):
 def cli(args):
     if args.film_command == "frames":
         return cmd_frames(args)
+    if args.film_command == "stats":
+        return cmd_stats(args)
     if args.film_command == "plan":
         return cmd_plan(args)
     return cmd_run(args)

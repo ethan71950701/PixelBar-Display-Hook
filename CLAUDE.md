@@ -132,8 +132,9 @@ Workflow and status:
      FILMING a long video 20 pictures at a time (docs/protocol.md "Filming a
      long video"): `film frames/plan/run --rehearse` and tools/film_post.py exist;
      `film run --send` is REFUSED (SEND_ENABLED False) until the user approves the
-     plan and the previews, then a 3-segment trial. Bad Apple frames (220, inverted
-     contain threshold) are in C:\pixelbar-raw\badapple\ (outside the repo); the
+     plan and the previews, then a 3-segment trial. Bad Apple frames (220, ORIGINAL
+     polarity: --no-invert --fit contain threshold 128; lit share max 16.8%, mean
+     7.6%, none above 25%; `film stats`) are in C:\pixelbar-raw\badapple\ (outside the repo); the
      full run needs 11 uploads, 8 are left (22 of 30): the user raises limits.json.
      Multi-picture uploads: `python -m pixelbar animation --frames N` (1-20,
      generated test animation, dry run by default; plan checks in

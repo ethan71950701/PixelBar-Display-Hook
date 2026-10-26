@@ -1984,6 +1984,19 @@ cut afterwards. State of each piece:
 | Post-processing | `tools/film_post.py VIDEO LOG` | **draft**: pure functions tested on synthetic logs, concatenation tested on a generated video; **never run on a real recording** |
 | Earlier tools | `animation`, `slideshow`, `image`, `prepare`, `gui` (video to pictures inside the window), `tools/screen_timing.py` | existing, see above |
 
+Polarity (the user's decision, 2026-10-26): keep the polarity of the original video, no
+inversion, no automatic polarity: the pictures were re-extracted with `film frames
+VIDEO --no-invert --fit contain --mode threshold --threshold 128 --overwrite` (220
+pictures, 32 s, written over the inverted ones in `C:\pixelbar-raw\badapple\`, with
+11 contact sheets and `overview_every4th.png`). `film stats` (read-only) on them: the
+share of lit pixels is at most **16.8%** (1376 of 8192 pixels: picture 93; the full
+frame of a 4:3 video "contained" into 256x32 is 43x32 pixels, so no picture can be
+brighter than that with this fit), mean 7.6%, median 7.1%; **0 pictures above 25%**;
+4 completely dark, 82 above 10%, 20 above 15%; per segment the maximum is 9.9-16.8%
+and the mean 3.7-13.4%. So the brightest moment lights about one sixth of the screen
+(an all-white block of 43x32 pixels in the middle). How bright that looks to the eye
+or the camera, and whether it matters for the speaker, was not measured.
+
 Plan for the whole Bad Apple video (`film plan`): 220 pictures, 11 segments of 20
 (1-20, 21-40, ..., 201-220), each: upload 23.3 s (measured, upload 22: 23.27 s) +
 play 20 s + buffer 2 s = 45.3 s; all 11: 498.3 s (8.3 min). **Upload quota: 22 of
