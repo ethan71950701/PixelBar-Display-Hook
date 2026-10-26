@@ -1967,6 +1967,60 @@ From 100 up the time is 2 ms x `XX XX` within about 1% at 100, 300, 400 and 500 
 last point is one upload, 9 intervals, and a different set of pictures). Still
 untested: values above 500 (the code refuses them), small values below 24.
 
+## Filming a long video, 20 pictures at a time (development, 2026-10-26; nothing sent)
+
+Idea (the user's): the speaker shows one picture per second by itself (XX XX = 500),
+so a long video can be filmed from the speaker's screen without speeding anything
+up. One upload holds at most 20 pictures (the most tried), so the video is cut into
+segments of 20 pictures = 20 s of play; each segment is uploaded, played once for
+20 s while a phone films the screen in the normal video mode, and the recording is
+cut afterwards. State of each piece:
+
+| Piece | Command / file | State |
+|---|---|---|
+| Frames | `python -m pixelbar film frames VIDEO [--fit contain] [--no-invert] [--mode threshold] [--dir D]` | written, tested on a generated video, **run once** on the Bad Apple video (the path the user left as a placeholder was taken to be the only Bad Apple file known, `Downloads\Bad Apple but it's in 4k 60fps.mp4`: an assumption): 220 pictures (t = 0..219 s), 99.7 s, defaults contain + invert + threshold 128; written with 11 contact sheets to `C:\pixelbar-raw\badapple\` (outside the repository) |
+| Plan | `film plan [--pictures N] [--max-uploads 3]` | written, tested, prints only |
+| Capture run | `film run --rehearse` | written, tested; the rehearsal is on a virtual clock and sends nothing. `film run --send` is **refused** (`SEND_ENABLED = False` in `pixelbar/film.py`); `run_film` and `make_uploader` exist and are tested with fake devices, nothing calls the real one |
+| Post-processing | `tools/film_post.py VIDEO LOG` | **draft**: pure functions tested on synthetic logs, concatenation tested on a generated video; **never run on a real recording** |
+| Earlier tools | `animation`, `slideshow`, `image`, `prepare`, `gui` (video to pictures inside the window), `tools/screen_timing.py` | existing, see above |
+
+Plan for the whole Bad Apple video (`film plan`): 220 pictures, 11 segments of 20
+(1-20, 21-40, ..., 201-220), each: upload 23.3 s (measured, upload 22: 23.27 s) +
+play 20 s + buffer 2 s = 45.3 s; all 11: 498.3 s (8.3 min). **Upload quota: 22 of
+30 used, 8 left; the plan needs 11, which is 3 too many** (the total limit would
+have to be 33); the program only reports it, `limits.json` is changed by the user
+only. A trial of 3 segments (`--max-uploads 3`, the default) fits and takes about
+136 s.
+
+Capture run (as designed): uploads the segments in order, after each upload checks
+every reply (the first mismatch, timeout or exception stops everything, no retry),
+waits 22 s (20 s of play + 2 s of buffer, also after the last), logs the wall-clock
+time of every upload start and end to the millisecond in `film_log.jsonl` (outside
+the repository), never makes more than `--max-uploads` uploads (default 3), and
+before sending would ask whether TempoHub is fully closed and whether the phone is
+already recording in the normal video mode (not slow motion). Each upload is the
+same single bounded upload as `slideshow --send`, with the usual limits and the log.
+
+Post-processing draft: ties the recording to the log with one anchor, the second
+of the recording at which the first upload started (given by hand with `--anchor`;
+without it the script prints a GUESS, the first big change of the screen picture
+after a quiet start, and refuses to write), computes the window of every segment
+(end of its upload to end of its 20 s of play, with optional `--lead`/`--trim`),
+and joins the windows in order without changing the speed of the frames.
+
+**Not verified yet**: that the speaker plays a 20-picture scene at exactly 1.0 s per
+picture over a whole 20-s pass (only 9 changes of one upload were measured); what the
+screen shows while an upload is running (the "uploading" picture the alignment idea
+relies on is not known); how soon after the last reply of an upload the first picture
+of the new segment appears, and whether the previous segment keeps playing until then;
+that the speaker accepts 3 or 11 uploads in a row at this pace; the 45.3-s cycle with
+a phone camera in real time (clock drift between the phone and the computer: the log
+uses the computer's clock, the anchor is read from the video); that the video quality
+of the phone recording is enough to read a 256x32 screen; the concatenation with a real
+recording; whether invert + threshold 128 is the right look (the user decides from the
+previews); and whether more than 20 pictures per upload could be used (see the limits
+section).
+
 ## Allowed `XX XX` range and the "same upload" rule (changed 2026-10-26, at the user's request)
 
 - The code accepts `XX XX` from `0x0030` (48) to `0x01f4` (500) for uploads of

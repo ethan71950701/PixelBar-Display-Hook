@@ -129,6 +129,12 @@ Workflow and status:
      0010..0190, only with several pictures; `ffff` never). Tools: 
      tools/screen_timing.py (video of the screen, `--slow 4` for 120 fps at 0.25x).
      limits.json is now {"total": 30, "per_day": 1000}; 17 uploads used.
+     FILMING a long video 20 pictures at a time (docs/protocol.md "Filming a
+     long video"): `film frames/plan/run --rehearse` and tools/film_post.py exist;
+     `film run --send` is REFUSED (SEND_ENABLED False) until the user approves the
+     plan and the previews, then a 3-segment trial. Bad Apple frames (220, inverted
+     contain threshold) are in C:\pixelbar-raw\badapple\ (outside the repo); the
+     full run needs 11 uploads, 8 are left (22 of 30): the user raises limits.json.
      Multi-picture uploads: `python -m pixelbar animation --frames N` (1-20,
      generated test animation, dry run by default; plan checks in
      upload_replay._multi_image_checks; exchange time limit max(30 s, 5 s +

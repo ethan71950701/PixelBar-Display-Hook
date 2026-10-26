@@ -13,7 +13,7 @@ import json
 import os
 import sys
 
-from . import device, frames, image, image_send, limits, prepare, testanim, upload, upload_replay
+from . import device, film, frames, image, image_send, limits, prepare, testanim, upload, upload_replay
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "..", "tests", "fixtures", "captured_frames.json")
 PREVIEW_DIR = r"C:\pixelbar-raw\preview"   # outside the repository
@@ -277,6 +277,7 @@ def main(argv=None):
                     help="record header XX XX in hex, 0030..01f4 (default: the captured 0064); the time each picture is shown (about 2 ms per unit from 0064 up, measured up to 0190)")
     sl.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; required with --send")
     add_send_options(sl)
+    film.add_arguments(sub)
     gu = sub.add_parser("gui", help="open a browser window to add pictures, crop them and upload them with a click (needs Pillow)")
     gu.add_argument("--no-browser", action="store_true", help="only print the address")
     gu.add_argument("--port", type=int, default=0, help="fixed port on 127.0.0.1 (default: a free one)")
@@ -297,6 +298,8 @@ def main(argv=None):
         add_send_options(p)
     args = ap.parse_args(argv)
 
+    if args.command == "film":
+        return film.cli(args)
     if args.command == "gui":
         from . import gui
         return gui.serve(open_browser=not args.no_browser, port=args.port)
