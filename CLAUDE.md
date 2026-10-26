@@ -119,10 +119,10 @@ Workflow and status:
      "Playback speed"): the speaker shows every picture of a scene for the same
      time, whatever the number of pictures (2, 7, 20 gave 0.20 s each), and the
      record header `XX XX` decides that time: `0018` = 0.040 s, `0030` = 0.0902 s,
-     `0064` = 0.2025 s, `012c` = 0.5996 s (same 2-picture animation, only that
-     field changed, uploads 17-19; TempoHub's scene 上岸 `0030` also 0.090 s):
-     about 2 ms per unit from 100 up, faster than that below (exact formula
-     unknown). `python -m pixelbar animation --frames 2 --xx 30` (allowed
+     `0064` = 0.2025 s, `012c` = 0.5996 s, `0190` = 0.8005 s (same 2-picture
+     animation, only that field changed, uploads 17-20; TempoHub's scene 上岸
+     `0030` also 0.090 s): 2 ms x XX XX within 1% from 100 up, faster than that
+     below (24, 48). Values above 0190 not tried (code refuses them). `python -m pixelbar animation --frames 2 --xx 30` (allowed
      0010..0190, only with several pictures; `ffff` never). Tools: 
      tools/screen_timing.py (video of the screen, `--slow 4` for 120 fps at 0.25x).
      limits.json is now {"total": 30, "per_day": 1000}; 17 uploads used.

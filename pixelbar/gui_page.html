@@ -125,6 +125,9 @@
     <div class="row" style="margin-top:6px"><label style="margin:0">預覽顏色</label><input id="previewColor" type="color" value="#ffffff"></div>
 
     <h2 style="margin-top:18px">上傳</h2>
+    <label>每張停留時間：<span id="secVal">0.20</span> 秒</label>
+    <input id="seconds" type="range" min="0.2" max="0.8" step="0.05" value="0.2">
+    <div class="muted" id="secNote">0.20 秒是 TempoHub 原本的速度。實測 0.2 到 0.8 秒之間，音箱照這個設定換圖（誤差約 1%）。只有 2 張以上才有效。</div>
     <div id="planBox" class="muted">加入圖片後這裡會顯示檢查結果。</div>
     <ul id="checks" class="checks"></ul>
     <div class="row" style="margin-top:8px">
@@ -167,6 +170,7 @@ async function api(path, body, raw, query) {
   if (!r.ok) throw new Error(data.error || ("錯誤 " + r.status));
   return data;
 }
+const seconds = () => +$("seconds").value;
 const settings = () => ({mode: $("mode").value, threshold: +$("threshold").value, invert: $("invert").checked, autocontrast: $("autocontrast").checked});
 const itemParams = it => ({id: it.id, fit: it.fit, zoom: it.zoom, cx: it.cx, cy: it.cy});
 
@@ -325,11 +329,12 @@ async function plan() {
   if (!items.length || items.some(i => !i.png)) { lastPlan = null; btn.disabled = true; $("checks").textContent = "";
     box.textContent = items.length ? "圖片還在處理…" : "加入圖片後這裡會顯示檢查結果。"; return; }
   try {
-    const p = await api("/api/plan", {items: items.map(itemParams), settings: settings()});
+    const p = await api("/api/plan", {items: items.map(itemParams), settings: settings(), seconds: seconds()});
     if (seq !== planSeq) return;
     lastPlan = p;
     const problems = p.problems.map(x => `<div class="bad">✗ ${esc(x)}</div>`).join("");
     box.innerHTML = `${p.pictures} 張 · ${p.frames} 個幀 · ${p.bytes} 位元組 · 預估約 ${p.seconds} 秒（最長 ${p.limit_seconds} 秒會自動中止）<br>` +
+      `<span class="muted">每張 ${p.seconds_per_picture.toFixed(2)} 秒（XX XX = ${p.xx}），整圈約 ${(p.pictures * p.seconds_per_picture).toFixed(1)} 秒</span><br>` +
       `<span class="muted">${esc(p.limits)} · 雜湊 ${p.sha.slice(0, 12)}</span>` + problems +
       (p.tempohub_running ? `<div class="warn">⚠ TempoHub／Edifier 程式還在執行：請完全關閉（包含右下角系統匣）後再上傳。</div>` : `<div class="ok">TempoHub 已關閉</div>`);
     $("checks").innerHTML = p.checks.map(c => `<li class="${c.ok ? "" : "fail"}">${esc(c.name)}</li>`).join("");
@@ -347,7 +352,7 @@ $("cYes").onclick = async () => { const a = pendingAction; pendingAction = null;
 $("send").onclick = () => {
   if (!lastPlan) return; const p = lastPlan;
   ask("確定要上傳到音箱？",
-    `<p>會上傳 <b>${p.pictures}</b> 張圖片（${p.frames} 個幀，約 ${p.seconds} 秒），蓋掉音箱目前的場景（之後可在 TempoHub 點一下別的場景再點回來還原）。</p>
+    `<p>會上傳 <b>${p.pictures}</b> 張圖片（${p.frames} 個幀，約 ${p.seconds} 秒），每張停留 <b>${p.seconds_per_picture.toFixed(2)}</b> 秒，蓋掉音箱目前的場景（之後可在 TempoHub 點一下別的場景再點回來還原）。</p>
      <p class="muted">${esc(p.limits)}；這次上傳會算一次（失敗也算）。位元圖雜湊 ${p.sha.slice(0, 12)}。</p>
      <p>請確認 TempoHub <b>完全關閉</b>（包含系統匣）。程式會再自動檢查一次。上傳期間請不要動音箱或拔線。</p>`,
     "確定上傳", () => doSend(p));
@@ -355,7 +360,7 @@ $("send").onclick = () => {
 async function doSend(p) {
   const btn = $("send"), r = $("result"); btn.disabled = true; r.style.display = "block"; r.textContent = "上傳中…（約 " + p.seconds + " 秒，請稍候）";
   try {
-    const res = await api("/api/send", {items: items.map(itemParams), settings: settings(), expect_sha: p.sha, confirm: true});
+    const res = await api("/api/send", {items: items.map(itemParams), settings: settings(), seconds: seconds(), expect_sha: p.sha, confirm: true});
     r.textContent = (res.ok ? "✓ 完成：" : "✗ 失敗：") + `寫入 ${res.written}/${res.of} 個幀，回覆吻合 ${res.matched} 個，用時 ${res.elapsed} 秒` +
       (res.ok ? "\n所有回覆都和預期一樣。請看音箱螢幕。" : `\n在第 ${res.stopped_at} 步停止：${res.reason}${res.raw ? "\n原始回覆 " + res.raw : ""}`) +
       (res.unsolicited.length ? "\n（途中有 " + res.unsolicited.length + " 個設備主動發來的幀，已忽略並記錄）" : "") + "\n" + res.log.join("\n");
@@ -370,6 +375,7 @@ $("sendColor").onclick = () => {
     catch (e) { r.textContent = "✗ " + e.message; }
   });
 };
+$("seconds").addEventListener("input", () => { $("secVal").textContent = seconds().toFixed(2); $("ms").value = Math.round(seconds() * 1000); schedulePlan(); });
 window.addEventListener("resize", drawCrop);
 
 // ---- pictures out of a video

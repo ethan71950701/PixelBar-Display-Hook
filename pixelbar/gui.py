@@ -38,6 +38,9 @@ MAX_VIDEO_BYTES = 1024 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024
 MAX_STORED = 60                 # pictures kept in memory
 MAX_SLIDES = 20                 # one upload (the most tried on the speaker)
+SECONDS_MIN, SECONDS_MAX = 0.2, 0.8   # time per picture: the range that was measured (XX XX 100..400, 2 ms per unit)
+MS_PER_UNIT = 2
+CAPTURED_XX = 0x0064
 FITS = ("crop", "contain", "stretch")
 MAX_ZOOM = 8.0
 RATIO = prepare.WIDTH // prepare.HEIGHT      # 8
@@ -213,6 +216,19 @@ class Workspace:
         rows = render_rows(self.picture(item), item, settings)
         return {"png": data_url(image.rows_to_png(rows, 1)), "lit": sum(map(sum, rows))}
 
+    @staticmethod
+    def xx_of(body, count):
+        """The record header XX XX for the wanted time per picture (seconds), or None for the captured one.
+
+        Only the measured range (0.2 to 0.8 s) is allowed, and only for several pictures: one picture does not move.
+        """
+        seconds = body.get("seconds")
+        if seconds is None:
+            return None
+        seconds = number(seconds, "seconds per picture", SECONDS_MIN, SECONDS_MAX)
+        xx = round(seconds * 1000 / MS_PER_UNIT)
+        return None if xx == CAPTURED_XX or count < 2 else xx
+
     def build(self, body):
         settings = check_settings(body.get("settings"))
         raw = body.get("items")
@@ -220,12 +236,14 @@ class Workspace:
             raise GuiError(f"add between 1 and {MAX_SLIDES} pictures to the upload list")
         pictures = [render_rows(self.picture(i), i, settings) for i in map(check_item, raw)]
         bitmap = b"".join(image.pack_pixels(rows) for rows in pictures)
-        steps, checks = upload_replay.load_plan(image=bitmap)
+        xx = self.xx_of(body, len(pictures))
+        steps, checks = upload_replay.load_plan(image=bitmap, xx=xx)
         return pictures, bitmap, steps, checks
 
     def plan(self, body):
         pictures, bitmap, steps, checks = self.build(body)
-        sha = image_send.bitmap_sha256(bitmap)
+        xx = self.xx_of(body, len(pictures))
+        sha = image_send.identity_sha256(bitmap, xx)
         try:
             status, problems = limits.status_line(self.state_dir), limits.problems_for_upload(sha, self.state_dir)
         except limits.LimitsError as err:
@@ -233,7 +251,8 @@ class Workspace:
         running = self.is_tempohub_running()
         return {"pictures": len(pictures), "frames": len(steps), "bytes": len(pictures) * upload.IMAGE_BYTES,
                 "seconds": round(0.4 + 0.048 * (len(steps) - 3)), "limit_seconds": round(upload_replay.total_limit_for(steps)),
-                "sha": sha, "checks": [{"name": k, "ok": bool(v)} for k, v in checks.items()], "limits": status,
+                "sha": sha, "xx": xx or CAPTURED_XX, "seconds_per_picture": (xx or CAPTURED_XX) * MS_PER_UNIT / 1000,
+                "checks": [{"name": k, "ok": bool(v)} for k, v in checks.items()], "limits": status,
                 "problems": problems, "tempohub_running": running,
                 "can_send": all(checks.values()) and not problems and not running}
 
@@ -245,7 +264,8 @@ class Workspace:
             raise GuiError("an upload is already running; nothing was sent")
         try:
             pictures, bitmap, steps, checks = self.build(body)
-            sha = image_send.bitmap_sha256(bitmap)
+            xx = self.xx_of(body, len(pictures))
+            sha = image_send.identity_sha256(bitmap, xx)
             expect = str(body.get("expect_sha", "")).lower()
             if len(expect) < 12 or not sha.startswith(expect):
                 raise GuiError("the pictures changed since the last check (hash mismatch); look at the new preview and confirm again; nothing was sent")
@@ -255,7 +275,7 @@ class Workspace:
                 raise GuiError("TempoHub (or an Edifier program) is still running: close it fully, also in the system tray; nothing was sent")
             lines = []
             try:
-                result = image_send.send_upload(steps, bitmap, self.open_device, state_dir=self.state_dir, log=lines.append)
+                result = image_send.send_upload(steps, bitmap, self.open_device, state_dir=self.state_dir, log=lines.append, xx=xx)
             except (image_send.UploadRefused, device.DeviceError, limits.LimitsError, RuntimeError) as err:
                 raise GuiError(f"{err}; nothing was sent") from None
             return {"ok": result["ok"], "written": result["written"], "of": len(steps), "matched": result["matched"],

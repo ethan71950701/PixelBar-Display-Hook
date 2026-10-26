@@ -261,6 +261,46 @@ class ServerTests(unittest.TestCase):
         self.assertIn("budget", err["error"])
         self.assertEqual(self.opened, [])
 
+    # ---- time per picture
+    def test_seconds_per_picture_sets_xx_xx_only_for_several_pictures(self):
+        info = self.add()
+        two = self.body([info["id"]] * 2)
+        _, base = self.request("POST", "/api/plan", two)
+        self.assertEqual((base["xx"], base["seconds_per_picture"]), (100, 0.2))
+        for seconds, xx in ((0.2, 100), (0.4, 200), (0.35, 175), (0.8, 400)):
+            status, plan = self.request("POST", "/api/plan", {**two, "seconds": seconds})
+            self.assertEqual((status, plan["xx"]), (200, xx), seconds)
+            self.assertTrue(plan["can_send"], plan)
+            self.assertEqual(plan["sha"] == base["sha"], xx == 100)
+        _, plan = self.request("POST", "/api/plan", {**two, "seconds": 0.4})
+        _, bitmap, _, _ = self.ws.build({**two, "seconds": 0.4})
+        self.assertEqual(plan["sha"], image_send.identity_sha256(bitmap, 200))
+        self.assertIn("0x00c8", " ".join(c["name"] for c in plan["checks"]))
+        one = self.body([info["id"]])
+        _, plan = self.request("POST", "/api/plan", {**one, "seconds": 0.6})      # one picture does not move: the captured value stays
+        self.assertEqual(plan["xx"], 100)
+        for bad in (0.19, 0.81, 0, 1.5, "0.4", True):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.request("POST", "/api/plan", {**two, "seconds": bad})[0], 400)
+
+    def test_a_send_with_a_speed_writes_that_xx_xx_and_needs_the_matching_hash(self):
+        info = self.add()
+        body = {**self.body([info["id"]] * 2), "seconds": 0.4}
+        _, bitmap, steps, _ = self.ws.build(body)
+        self.script = {i: [s[2]] for i, s in enumerate(steps) if s[2] is not None}
+        body["confirm"] = True
+        body["expect_sha"] = image_send.bitmap_sha256(bitmap)[:16]            # the hash of the bitmap alone is not this upload's hash
+        status, err = self.request("POST", "/api/send", body)
+        self.assertEqual(status, 400, err)
+        self.assertEqual(self.opened, [])
+        body["expect_sha"] = image_send.identity_sha256(bitmap, 200)[:16]
+        status, result = self.request("POST", "/api/send", body)
+        self.assertEqual(status, 200, result)
+        self.assertTrue(result["ok"], result)
+        stream = b"".join(f[10:6 + int.from_bytes(f[4:6], "big")] for f in self.opened[0].writes[2:-2])
+        self.assertIn(bytes([2, 0, 0, 0x00, 0xC8]), stream)
+        self.assertNotIn(bytes([2, 0, 0, 0x00, 0x64]), stream)
+
     # ---- colour
     def test_colour_needs_confirmation_and_the_expected_reply(self):
         self.assertEqual(self.request("POST", "/api/color", {"rgb": "336699"})[0], 400)
