@@ -1924,6 +1924,69 @@ whether very small or large values are safe for the speaker; what `ffff`
 means; where the field ends (it is two bytes). Values outside `0010`-`0190` stay refused by the code; any
 value of an unknown field needs the user's approval for each use.
 
+### Sixth value: `XX XX` = `01f4` (500) with the Bad Apple pictures (upload 22, 2026-10-26, user-approved, one upload only)
+
+The user asked for this single test (「XX XX=500 的测试，只做这一次」): the 20
+pictures of upload 9 (`ba_01..ba_20_gray.png`: one frame per second of a video, t = 0
+to 19 s, shrunk to 32 pixels high and centred, threshold 128, not inverted) with
+only `XX XX` changed from `0064` to `01f4`. The speaker showed white `Hello`
+first (CLI; user-confirmed 「是，正常」). Dry run: 429 frames, 163 of them differ
+from the same upload with `0064`, 320 bytes besides checksums differ (the changed
+bytes of `XX XX` in 160 records), nothing else. Upload: 429/429 frames written, 428
+replies, all matched, no unsolicited frame, 23.27 s, TempoHub process count 0,
+sent once, no retry (counter 21 -> 22 of 30).
+
+Reported by the user: 「1正常」 (the loop is normal) and that the slow-motion
+video (120 fps at 0.25x) is in Downloads (`20261026_102522.mp4`, 39.9 s of file
+time). The user did not give a stopwatch time for one loop; the video, not a
+stopwatch, is the measurement.
+
+Measured from the video (screen region only, lit pixels, real seconds = file time
+/ 4; the camera had moved, the LED strip below the screen changes colour and was
+left out): the picture changes at 2.26, 6.20, 10.18, 14.23, 18.22, 26.31, 30.33,
+34.35 and 38.26 s of file time; one change (22.2 s) was missed by the detector
+(the pictures there differ little, 8.10 s gap = two changes). From the first to
+the last of these, 36.00 s of file time over 9 changes = 4.000 s each, that is
+**1.000 s per picture** (individual gaps 3.91-4.05 s, i.e. 0.98-1.01 s real).
+Prediction before sending (500 x 2 ms): 1.0 s per picture, 20 pictures about 20
+s. So the per-picture time matches the extrapolation, **measured** for this
+one upload. One whole loop (20 s real = 80 s of file time) is **not** in the
+video (it holds about 10 pictures); the 20 s per loop is arithmetic from the
+per-picture time, not an observation. No stopwatch figure exists for it.
+
+| `XX XX` | time per picture | ms per unit |
+|---|---|---|
+| `0018` = 24 | 0.0400 s | 1.67 |
+| `0030` = 48 | 0.0902 s | 1.88 |
+| `0064` = 100 | 0.2025 s | 2.03 |
+| `012c` = 300 | 0.5996 s | 2.00 |
+| `0190` = 400 | 0.8005 s | 2.001 |
+| `01f4` = 500 | 1.000 s | 2.000 |
+
+From 100 up the time is 2 ms x `XX XX` within about 1% at 100, 300, 400 and 500 (the
+last point is one upload, 9 intervals, and a different set of pictures). Still
+untested: values above 500 (the code refuses them), small values below 24.
+
+## Allowed `XX XX` range and the "same upload" rule (changed 2026-10-26, at the user's request)
+
+- The code accepts `XX XX` from `0x0030` (48) to `0x01f4` (500) for uploads of
+  several pictures; everything else (including `0xffff`) is refused. The GUI
+  offers only 0.2-0.8 s (`0x0064`-`0x0190`).
+- **Calibrated: `0x0018`-`0x0190` only** (measured values: 24, 48, 100, 300,
+  400). **Above `0x0190` there is no calibration data**: `0x01f4` (500) is an
+  extrapolation of "about 2 ms per unit", predicting about 1.0 s per picture,
+  and has to be checked with a stopwatch. Nothing is known about whether the
+  speaker accepts such a value at all.
+- The limits and the log now treat "the same pictures with a different
+  `XX XX`" as a different upload; only identical pictures with an identical
+  `XX XX` are refused as a repeat (`0x0064` is the plain upload). The upload
+  identity is the SHA-256 of the bitmap, followed by `"XX"` and the two bytes
+  of `XX XX` when it is not `0x0064`.
+- With `--xx` the dry run also prints how the upload differs from the same
+  upload with `0x0064`: only the changed bytes of `XX XX` in every record and
+  the checksum of every frame that holds one (check written from the stream
+  layout, not from the builder).
+
 ## Limits: what the captures and the live tests say about sizes (read-only analysis, 2026-10-26)
 
 Nothing was sent for this section. Tools: `python tools/analyze_replies.py

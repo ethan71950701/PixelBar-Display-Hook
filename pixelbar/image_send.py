@@ -20,8 +20,11 @@ def bitmap_sha256(bitmap):
 
 
 def identity_sha256(bitmap, xx=None):
-    """What the limits and the log call "the same upload": the bitmap, plus XX XX when it is not the captured one."""
-    return bitmap_sha256(bitmap if xx is None else bitmap + b"XX" + xx.to_bytes(2, "big"))
+    """What the limits and the log call "the same upload": the bitmap, plus XX XX when it is not the captured 0x0064.
+
+    The same pictures with a different XX XX are a different upload; with 0x0064 (or none) they are the same.
+    """
+    return bitmap_sha256(bitmap if xx in (None, 0x0064) else bitmap + b"XX" + xx.to_bytes(2, "big"))
 
 
 def send_upload(steps, bitmap, open_device, state_dir=None, day=None, log=print, xx=None):

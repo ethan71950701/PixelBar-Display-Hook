@@ -127,16 +127,63 @@ class XxTests(unittest.TestCase):
         self.assertTrue(any("0x0030" in k for k in checks))
 
     def test_only_values_tempohub_used_and_only_for_several_pictures(self):
-        for bad in (0x0000, 0x000F, 0x0191, 0xFFFF):
+        for bad in (0x0000, 0x002F, 0x0010, 0x01F5, 0x0200, 0xFFFF):
             with self.subTest(xx=bad), self.assertRaises(ValueError):
                 upload_replay.load_plan(image=bitmap_of(2), xx=bad)
         with self.assertRaises(ValueError):
             upload_replay.load_plan(image=bitmap_of(1), xx=0x0030)
         with self.assertRaises(ValueError):
             upload_replay.load_plan(xx=0x0030)
-        for ok in (0x0064, 0x0018, 0x00C8):
+        for ok in (0x0064, 0x0030, 0x00C8, 0x0190, 0x01F4):
             steps, checks = upload_replay.load_plan(image=bitmap_of(2), xx=ok)
             self.assertTrue(all(checks.values()), ok)
+
+    def test_the_only_differences_are_the_xx_xx_bytes_and_checksums(self):
+        for xx, changed_bytes in ((0x0030, 1), (0x01F4, 2)):           # 0x0064 -> 0x0030 changes the low byte only; -> 0x01f4 both bytes
+            for n in (2, 20):
+                diff = upload_replay.xx_difference(bitmap_of(n), xx)
+                self.assertTrue(diff["ok"], diff["text"])
+                self.assertEqual((diff["records"], diff["bytes"]), (n * 8, n * 8 * changed_bytes))
+                self.assertIn("only XX XX and checksum bytes differ: yes", diff["text"])
+        # a builder that also changed something else would be caught: the check is independent of the builder's xx handling
+        bitmap = bitmap_of(2)
+        new = upload.upload_sequence(bitmap, 2, 0x01F4, (0x33, 0x66, 0x99), 0x21)
+        old = upload.upload_sequence(bitmap, 2, 0x0064, (0x33, 0x66, 0x99), 0x21)
+        broken = bytearray(new[5]); broken[20] ^= 0xFF
+        self.assertNotEqual(bytes(broken), new[5])
+        self.assertNotEqual(old, new)
+
+    def test_the_same_pictures_with_another_xx_xx_are_another_upload(self):
+        bitmap = bitmap_of(2)
+        plain = image_send.identity_sha256(bitmap)
+        self.assertEqual(plain, image_send.identity_sha256(bitmap, 0x0064))           # the captured value is the plain upload
+        self.assertEqual(plain, image_send.bitmap_sha256(bitmap))
+        self.assertNotEqual(plain, image_send.identity_sha256(bitmap, 0x01F4))
+        self.assertNotEqual(image_send.identity_sha256(bitmap, 0x0190), image_send.identity_sha256(bitmap, 0x01F4))
+        self.assertEqual(image_send.identity_sha256(bitmap, 0x01F4), image_send.identity_sha256(bitmap, 0x01F4))
+
+    def test_send_refuses_an_identical_upload_but_accepts_the_same_pictures_with_another_xx_xx(self):
+        with tempfile.TemporaryDirectory() as state:
+            bitmap = bitmap_of(2)
+            clock, devices = Clock(), []
+
+            def run(xx):
+                steps, _ = upload_replay.load_plan(image=bitmap, xx=xx)
+                script = {i: [s[2]] for i, s in enumerate(steps) if s[2] is not None}
+
+                def open_device():
+                    devices.append(ClosingDevice(clock, script))
+                    return devices[-1]
+                return image_send.send_upload(steps, bitmap, open_device, state_dir=state, day="2026-10-26", log=lambda line: None, xx=xx)
+
+            self.assertTrue(run(0x0190)["ok"])
+            with self.assertRaises(image_send.UploadRefused):                         # identical (bitmap and XX XX)
+                run(0x0190)
+            self.assertTrue(run(0x01F4)["ok"])                                         # same pictures, another XX XX
+            self.assertTrue(run(None)["ok"])                                           # and the captured value is again another one
+            with self.assertRaises(image_send.UploadRefused):
+                run(0x0064)                                                            # 0x0064 is the plain upload that just completed
+            self.assertEqual(len(devices), 3)
 
     def test_the_identity_hash_depends_on_xx_xx(self):
         bitmap = bitmap_of(2)
@@ -239,9 +286,34 @@ class CliTests(unittest.TestCase):
         self.assertIn("XX XX is changed from the captured 0x0064 to 0x0030", text)
         self.assertNotIn("[FAIL]", text)
         self.assertIn("record header XX XX is the requested 0x0030", text)
-        for bad, frames_ in (("ffff", "2"), ("30", "1"), ("0f", "2")):
+        for bad, frames_ in (("ffff", "2"), ("30", "1"), ("2f", "2"), ("1f5", "2")):
             with self.subTest(xx=bad), self.assertRaises(SystemExit) as ctx, contextlib.redirect_stdout(io.StringIO()):
                 cli.main(["animation", "--frames", frames_, "--xx", bad, "--preview-dir", self.dir])
+            self.assertIn("error", str(ctx.exception))
+
+    def test_slideshow_applies_xx_xx_to_the_plan_and_the_hash(self):
+        paths = []
+        for k in (0, 1):
+            path = os.path.join(self.dir, f"p{k}.png")
+            with open(path, "wb") as fh:
+                fh.write(image.rows_to_png(testanim.frame_rows(k), 1))
+            paths.append(path)
+        options = ["--mode", "threshold", "--fit", "stretch", "--preview-dir", self.dir]
+        with self.forbid_the_device():
+            plain = self.run_cli("slideshow", *paths, *options)
+            fast = self.run_cli("slideshow", *paths, *options, "--xx", "1f4")
+        self.assertNotIn("[FAIL]", plain + fast)
+        self.assertNotIn("difference:", plain)
+        self.assertIn("record headers: T and XX XX are capture 20's", plain)
+        self.assertIn("XX XX is the requested 0x01f4", fast)                          # the plan really carries the new value
+        self.assertIn("only XX XX and checksum bytes differ: yes", fast)
+        self.assertIn("the only change; the time each picture is shown", fast)
+        import re
+        hash_of = lambda text: re.search(r"To upload it: add --send --expect-sha ([0-9a-f]{12})", text).group(1)
+        self.assertNotEqual(hash_of(plain), hash_of(fast))                             # the same pictures with another XX XX: another upload
+        for bad in ("ffff", "1f5", "2f"):
+            with self.subTest(xx=bad), self.assertRaises(SystemExit) as ctx, contextlib.redirect_stdout(io.StringIO()):
+                cli.main(["slideshow", *paths, *options, "--xx", bad])
             self.assertIn("error", str(ctx.exception))
 
     def test_the_count_must_be_1_to_20(self):

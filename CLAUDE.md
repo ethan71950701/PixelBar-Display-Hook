@@ -121,8 +121,11 @@ Workflow and status:
      record header `XX XX` decides that time: `0018` = 0.040 s, `0030` = 0.0902 s,
      `0064` = 0.2025 s, `012c` = 0.5996 s, `0190` = 0.8005 s (same 2-picture
      animation, only that field changed, uploads 17-20; TempoHub's scene 上岸
-     `0030` also 0.090 s): 2 ms x XX XX within 1% from 100 up, faster than that
-     below (24, 48). Values above 0190 not tried (code refuses them). `python -m pixelbar animation --frames 2 --xx 30` (allowed
+     `0030` also 0.090 s), `01f4` = 1.000 s (upload 22: Bad Apple 20 pictures,
+     only XX XX changed, user: loop normal): 2 ms x XX XX within 1% from 100 up,
+     faster than that below (24, 48). Code range now 0030..01f4 (above 0190 is
+     extrapolation, now measured once at 01f4); "same upload" = same pictures AND
+     same XX XX. `slideshow --xx` exists. 22 of 30 uploads used. `python -m pixelbar animation --frames 2 --xx 30` (allowed
      0010..0190, only with several pictures; `ffff` never). Tools: 
      tools/screen_timing.py (video of the screen, `--slow 4` for 120 fps at 0.25x).
      limits.json is now {"total": 30, "per_day": 1000}; 17 uploads used.

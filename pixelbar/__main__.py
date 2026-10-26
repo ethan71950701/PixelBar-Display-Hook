@@ -209,6 +209,8 @@ def cmd_animation(args):
     print(f"\nupload sequence: {len(steps)} frames (1 ef, 1 start, {chunks} data, 1 end), declared size {args.frames * 8 * 133} bytes, "
           f"{args.frames * 8} records of 133 bytes; ef, end and the unknown fields are capture 20's"
           f"{'' if xx is None else ' except XX XX'}, the start frame differs from capture 20's only in the size")
+    if xx is not None:
+        print("difference: " + upload_replay.xx_difference(bitmap, xx)["text"])
     finish_upload(args, steps, checks, bitmap, sha, xx)
 
 
@@ -220,8 +222,12 @@ def cmd_slideshow(args):
         sys.exit(f"error: give between 1 and {testanim.FRAMES} pictures")
     pictures = [prepared_rows(args, path) for path in args.pictures]
     bitmap = b"".join(image.pack_pixels(rows) for rows in pictures)
-    sha = image_send.bitmap_sha256(bitmap)
+    xx = args.xx
+    sha = image_send.identity_sha256(bitmap, xx)
     n = len(pictures)
+    if xx is not None and xx != upload_replay.CAPTURED_XX:
+        print(f"NOTE: record header XX XX is changed from the captured 0x0064 to 0x{xx:04x} (the only change; the time each picture is shown "
+              f"changes); the hash below covers the bitmap and XX XX")
     print(f"slideshow of {n} pictures, fit {args.fit}, mode {args.mode}, threshold {args.threshold}"
           f"{', inverted' if args.invert else ''}{', autocontrast' if args.autocontrast else ''}; "
           f"{n * upload.IMAGE_BYTES} bytes of image data; bitmap sha256 {sha[:16]}")
@@ -234,10 +240,16 @@ def cmd_slideshow(args):
         fh.write(image.stack_png(pictures, 3))
     print(f"wrote the 3x contact sheet of all {n} pictures (top to bottom, in the order they are uploaded): {out}")
 
-    steps, checks = upload_replay.load_plan(image=bitmap)
+    try:
+        steps, checks = upload_replay.load_plan(image=bitmap, xx=xx)
+    except ValueError as err:
+        sys.exit(f"error: {err}")
     print(f"\nupload sequence: {len(steps)} frames (1 ef, 1 start, {len(steps) - 3} data, 1 end), declared size {n * 8 * 133} bytes, "
-          f"{n * 8} records of 133 bytes; ef, end and the unknown fields are capture 20's, the start frame differs from capture 20's only in the size")
-    finish_upload(args, steps, checks, bitmap, sha)
+          f"{n * 8} records of 133 bytes; ef, end and the unknown fields are capture 20's"
+          f"{'' if xx is None else ' except XX XX'}, the start frame differs from capture 20's only in the size")
+    if xx is not None:
+        print("difference: " + upload_replay.xx_difference(bitmap, xx)["text"])
+    finish_upload(args, steps, checks, bitmap, sha, xx)
 
 
 def main(argv=None):
@@ -254,13 +266,15 @@ def main(argv=None):
     an.add_argument("--frames", type=int, required=True, help=f"how many pictures, 1 to {testanim.FRAMES} (the first N of the 20)")
     an.add_argument("--preview-dir", default=PREVIEW_DIR, help=f"where the contact sheet PNG goes (default {PREVIEW_DIR}; keep it outside the repository)")
     an.add_argument("--xx", type=lambda v: int(v, 16), default=None, metavar="HEX",
-                    help="record header XX XX in hex, 0010..0190 (default: the captured 0064); sets the time each picture is shown (0064: 0.20 s, 0030: 0.09 s measured); the only unknown field that may differ")
+                    help="record header XX XX in hex, 0030..01f4 (default: the captured 0064); sets the time each picture is shown (about 2 ms per unit from 0064 up, measured up to 0190; 01f4 is extrapolated); the only unknown field that may differ")
     an.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; required with --send")
     add_send_options(an)
     sl = sub.add_parser("slideshow", help="1 to 20 of your own pictures in one upload, in the order given (dry run by default)")
     sl.add_argument("pictures", nargs="+")
     add_prepare_options(sl)
     sl.add_argument("--preview-dir", default=PREVIEW_DIR, help=f"where the contact sheet PNG goes (default {PREVIEW_DIR}; keep it outside the repository)")
+    sl.add_argument("--xx", type=lambda v: int(v, 16), default=None, metavar="HEX",
+                    help="record header XX XX in hex, 0030..01f4 (default: the captured 0064); the time each picture is shown (about 2 ms per unit from 0064 up, measured up to 0190)")
     sl.add_argument("--expect-sha", metavar="HEX", help="at least 12 hex digits of the bitmap sha256 shown by the dry run; required with --send")
     add_send_options(sl)
     gu = sub.add_parser("gui", help="open a browser window to add pictures, crop them and upload them with a click (needs Pillow)")

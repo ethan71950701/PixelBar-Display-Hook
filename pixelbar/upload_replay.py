@@ -115,8 +115,35 @@ def _multi_image_checks(steps, built, image, c, ef, captured_out):
     }
 
 
-XX_MIN, XX_MAX = 0x0010, 0x0190         # tried so far: 0x0030 and 0x0064 (TempoHub's); 0xffff (one-picture scenes) is never allowed
-ALLOWED_XX = (0x0030, 0x0064)          # the values with a measured speed (documented); others in XX_MIN..XX_MAX need the user's go-ahead
+CAPTURED_XX = 0x0064
+XX_MIN, XX_MAX = 0x0030, 0x01F4         # 0x0030..0x0190 were measured (2 ms per unit from 100 up); above 0x0190 is extrapolation, 0xffff is never allowed
+
+
+def xx_difference(image, xx, ef_payload=None, record_type=0x02):
+    """Compare the upload of `image` with XX XX = xx against the same upload with the captured XX XX.
+
+    Returns {"ok", "frames", "bytes", "records", "text"}: ok is True when the only bytes that differ are the two
+    XX XX bytes of every record (and the checksum of each frame that holds one). Written from the stream layout
+    (133-byte records, XX XX at offsets 3-4, 50-byte chunks starting at frame offset 10), not from the builder.
+    """
+    ef = bytes.fromhex("0133669900010221ff") if ef_payload is None else ef_payload
+    new = upload.upload_sequence(image, record_type, xx, tuple(ef[1:4]), ef[7])
+    old = upload.upload_sequence(image, record_type, CAPTURED_XX, tuple(ef[1:4]), ef[7])
+    records = len(image) // upload.IMAGE_BYTES * (upload.IMAGE_BYTES // upload.RECORD_DATA)
+    record = upload.RECORD_HEADER + upload.RECORD_DATA
+    expected = {(2 + (r * record + k) // 50, 10 + (r * record + k) % 50) for r in range(records) for k in (3, 4)}
+    expected = {e for e in expected if new[e[0]][e[1]] != old[e[0]][e[1]]}
+    actual, frames, same_length = set(), set(), len(new) == len(old)
+    for i, (a, b) in enumerate(zip(new, old)):
+        if a == b:
+            continue
+        frames.add(i)
+        checksum_at = 6 + int.from_bytes(a[4:6], "big")
+        actual |= {(i, k) for k in range(len(a)) if a[k] != b[k] and k != checksum_at}
+    ok = same_length and actual == expected and (bool(actual) or xx == CAPTURED_XX)
+    text = (f"{len(frames)} of {len(new)} frames differ from the same upload with XX XX 0x{CAPTURED_XX:04x}; {len(actual)} bytes besides "
+            f"checksums (the changed bytes of XX XX in {records} records); only XX XX and checksum bytes differ: {'yes' if ok else 'NO'}")
+    return {"ok": ok, "frames": len(frames), "bytes": len(actual), "records": records, "text": text}
 
 
 def load_plan(fixture=FIXTURE, pixel=None, image=None, xx=None):
@@ -133,7 +160,7 @@ def load_plan(fixture=FIXTURE, pixel=None, image=None, xx=None):
         c = json.load(fh)[KEY]
     if xx is not None:
         if not XX_MIN <= xx <= XX_MAX:
-            raise ValueError(f"XX XX may only be between 0x{XX_MIN:04x} and 0x{XX_MAX:04x} (0x0030 and 0x0064 are the ones measured so far)")
+            raise ValueError(f"XX XX may only be between 0x{XX_MIN:04x} and 0x{XX_MAX:04x} (0x0190 and below were measured; above is extrapolation)")
         if image is None or len(image) <= upload.IMAGE_BYTES:
             raise ValueError("a different XX XX is only for uploads of several pictures")
         c = {**c, "xx": xx}
@@ -200,7 +227,8 @@ def load_plan(fixture=FIXTURE, pixel=None, image=None, xx=None):
         **({} if many else {"expected replies equal the speaker's replies in capture 20": expected == [bytes.fromhex(h) for h in c["in"]]}),
         "record header T is the captured 0x02": c["type"] == 0x02,
         **({"record header XX XX is the captured 0x0064": c["xx"] == 0x0064} if xx is None else
-           {f"record header XX XX is the requested 0x{xx:04x}, the only unknown field that differs from capture 20 (T, ef frame: captured)": c["xx"] == xx}),
+           {f"record header XX XX is the requested 0x{xx:04x}, the only unknown field that differs from capture 20 (T, ef frame: captured)": c["xx"] == xx,
+            "only the XX XX bytes (and frame checksums) differ from the same upload with the captured XX XX 0x0064": xx_difference(image, xx)["ok"]}),
         "ef frame payload is the captured 01 33 66 99 00 01 02 21 ff": ef.hex() == "0133669900010221ff",
         "every reply expectation is used once": sum(1 for s in steps if s[2] is not None) == len(expected),
         "all frames are 64 bytes": all(len(s[1]) == 64 for s in steps),
