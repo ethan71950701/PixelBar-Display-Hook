@@ -1,0 +1,15 @@
+# Tested with Python 3.12 on Windows 11 (see docs/REPRODUCE.md). Install what you need:
+#
+# Talking to the speaker (every command that sends). Without it, everything runs as a dry run.
+hidapi>=0.14
+#
+# Your own pictures: `image`, `prepare`, `slideshow`, `animation` previews, the browser window (`gui`).
+# Tested with Pillow 13.0.0.
+pillow>=10
+#
+# Video: picking pictures out of a video in the browser window, `film frames`, tools/film_post.py,
+# tools/screen_timing.py. Optional. Tested with PyAV 19.0.2.
+av>=12
+#
+# Only tools/list_devices.py (it also lists serial ports).
+pyserial>=3.5

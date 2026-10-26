@@ -1,12 +1,10 @@
-# PixelBar protocol notes
+# PixelBar protocol notes: the lab notebook
 
-Fill in from captures. Questions to answer:
-
-- Transport: USB HID, USB serial, BLE GATT, or classic Bluetooth?
-- Screen resolution, colour depth
-- Text packet: encoding, font, colour, scroll fields
-- Image packet: chunking, pixel format, checksum
-- Differences between basic and enhanced editions
+**This file is the evidence log, written in the order things happened (2026-10-25 and 26), not a specification.** Early
+sections contain guesses that later sections corrected, and tables that were updated in some places and not in others.
+For what is confirmed, read [SPEC.md](SPEC.md); to repeat the work, read [REPRODUCE.md](REPRODUCE.md). Statuses used here:
+*confirmed* (seen in a capture or in a live test), *guessed* and *unknown*. The user's own words are quoted where they were
+the evidence. The speaker's address-like start-up reply (`c8`) is shown with its last three bytes masked.
 
 ## Device identification (2026-10-25)
 
@@ -91,7 +89,7 @@ PDO->FDO), which the dev9 filter dropped. In the dev9 file every IN URB is
 | `d8` | none | `0000010501010100010001010a0e0a0031a000830030000000a008` (27 B) | capability/feature table | guessed |
 | `65` | none | `02000040` | unknown (version/flags?) | unknown |
 | `c9` | none | UTF-8 `e88ab1 e5868d 20 48616c6f20506978656c426172` | device name "花再 Halo PixelBar" | confirmed (decoded text) |
-| `c8` | none | `c82478bbc66f` (6 B) | looks like a Bluetooth/MAC address | guessed |
+| `c8` | none | `c82478xxxxxx` (6 B) | looks like a Bluetooth/MAC address | guessed |
 | `c6` | none | `010306` | version number? | guessed |
 | `66` | none | `100b` | unknown | unknown |
 | `d5`, `68` | none | `00` | unknown flags | unknown |
@@ -670,7 +668,7 @@ OUT = host to speaker, IN = speaker to host.
 | `86` | 1 | 1 | 0 | 3 | 1/1 | 0 | 01 | startup query, reply `0e 01 01` | unknown |
 | `87` | 2 | 2 | 3 | 3 | 2/2 | 0 | 01, 06 | OUT `0e 02 01`, reply `02 02 01` | unknown |
 | `c6` | 4 | 4 | 0 | 3 | 4/4 | 0 | 01, 06 | startup query, reply `01 03 06` | unknown (version? guess) |
-| `c8` | 4 | 4 | 0 | 6 | 4/4 | 0 | 01, 06 | startup query, reply `c8 24 78 bb c6 6f`, looks like an address | unknown (address-like, guess) |
+| `c8` | 4 | 4 | 0 | 6 | 4/4 | 0 | 01, 06 | startup query, reply `c8 24 78 xx xx xx`, looks like an address | unknown (address-like, guess) |
 | `c9` | 4 | 4 | 0 | 20 | 4/4 | 0 | 01, 06 | device name, UTF-8: "花再 Halo PixelBar" | confirmed |
 | `d5` | 2 | 2 | 0 | 1 | 2/2 | 0 | 01, 06 | startup query, reply `00` | unknown |
 | `d7` | 1 | 1 | 0 | 2 | 1/1 | 0 | 01 | startup query, reply `01 01` | unknown |
@@ -2278,7 +2276,7 @@ payload offset + 6).
 | `d8` | `00 00 01 05 01 01 01 00 01 00 01 01 0a 0e 0a 00 31 a0 00 83 00 30 00 00 00 a0 08` (27 B, the same 4 times) | 16-17: `0x31a0` = 12704; 18-19: `0x0083` = 131; 20-21: `0x0030` = 48; 24-25: `0x00a0` = 160; 12-14: `0a 0e 0a` = 10, 14, 10 | unknown table; the "capability table" in the earlier table is a guess | **guess only**. Remark: 160 is the number of records of a 20-picture upload (8 per picture) and the number of pictures we stopped at, 20; and `0x0030` is also one of the `XX XX` values TempoHub uses. Both could be coincidences. No test separates them yet |
 | `e7` (read the text back) | `00 10 32 LL text` (12 frames, 7 captures; `00 20 32 ...` once) | 2: `0x32` = 50 in every reply; 3: `LL` = text byte count (confirmed, captures 07-09) | `0x32` could be "at most 50 text bytes" | **guess**. Against it as an enforced limit: a 55-byte text was acknowledged and shown completely in scroll mode (live length tests) |
 | `6a` | 44 bytes, identical every time | repeated groups `3c 0a` / `3c ff` after indexes 02..07 | a table with a number 60 (`0x3c`) and 10 per entry | unknown, no size-like field recognised |
-| `c8` | `c8 24 78 bb c6 6f` | all 6 | address-like | guess |
+| `c8` | `c8 24 78 xx xx xx` | all 6 | address-like | guess |
 | `c9` | UTF-8 text `花再 Halo PixelBar` | all 20 | device name | **confirmed** (decodes as text) |
 | `c6` | `01 03 06` | 0-2 | a version? | guess |
 | `ee` | 12 bytes, 6 distinct (mode/colour state) | see the display-mode section | state, not a size | confirmed as state, see above |
