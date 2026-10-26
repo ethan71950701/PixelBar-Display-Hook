@@ -240,12 +240,34 @@ class ExchangeTests(unittest.TestCase):
         self.assertIn("differs", result["reason"])
         self.assertIsNotNone(result["raw"])
 
-    def test_other_pushes_are_not_tolerated(self):
+    def test_the_exact_77_02_push_is_recorded_and_ignored(self):
+        push = reply(0x77, b"\x02")                               # 2fbbec7700010221: what the speaker sent in the middle of uploads
+        self.assertEqual(push.rstrip(bytes(1)), upload_replay.TIME_REQUEST_PUSH)
         script = dict(GOOD)
-        script[3] = [reply(0x77, b"\x02")]
+        script[3] = [push, STEPS[3][2]]                           # the push arrives first, the real acknowledgement right after it
+        result, dev = go(script)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["unsolicited"], [(3, upload_replay.TIME_REQUEST_PUSH.hex())])
+        self.assertEqual(len(dev.writes), 25)                     # nothing was written because of it, nothing re-sent
+        self.assertEqual(len(set(dev.writes)), len(dev.writes))
+
+    def test_a_push_alone_does_not_replace_the_acknowledgement(self):
+        script = dict(GOOD)
+        script[3] = [reply(0x77, b"\x02")]                       # no acknowledgement follows: the run still ends at that step
         result, dev = go(script)
         self.assertFalse(result["ok"])
         self.assertEqual(result["stopped_at"], 3)
+
+    def test_other_pushes_are_not_tolerated(self):
+        for name, frame in (("77 with another payload", reply(0x77, b"\x01")), ("77 with a longer payload", reply(0x77, b"\x02\x00")),
+                            ("77 with a wrong checksum", upload_replay.TIME_REQUEST_PUSH[:-1] + b"\x22"), ("d8", reply(0xD8, b"\x02"))):
+            with self.subTest(name):
+                script = dict(GOOD)
+                script[3] = [frame, STEPS[3][2]]                 # even if the right acknowledgement follows
+                result, dev = go(script)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["stopped_at"], 3)
+                self.assertEqual(result["unsolicited"], [])
 
     def test_timeout_stops(self):
         script = dict(GOOD)
