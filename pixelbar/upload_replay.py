@@ -27,6 +27,7 @@ KEY = "20"  # the only scene that can be replayed: 兼职成年人, plain text
 REPLY_TIMEOUT_S = 2.0
 TOTAL_LIMIT_S = 30.0
 UNSOLICITED_COMMANDS = (0xEE, 0x66)
+TIME_REQUEST_PUSH = bytes.fromhex("2fbbec7700010221")      # the speaker's own `77` with payload `02` (seen about every 10 minutes; the user allowed it)
 FIXTURE = os.path.join(os.path.dirname(__file__), "..", "tests", "fixtures", "captured_uploads.json")
 
 
@@ -261,9 +262,11 @@ def same_but_colour(data, expected):
 
 
 def classify(data, expected, colour_may_differ=False):
-    """'matched', 'unsolicited' (an ee or 66 push from the speaker) or 'mismatch'."""
+    """'matched', 'unsolicited' (an ee or 66 push, or the exact `77` `02` frame, from the speaker) or 'mismatch'."""
     if data == expected or (colour_may_differ and same_but_colour(data, expected)):
         return "matched"
+    if data.rstrip(bytes(1)) == TIME_REQUEST_PUSH:                  # only this exact frame (checksum included), no other 77
+        return "unsolicited"
     if len(data) >= 4 and data[0] == frames.REPORT_ID_IN and data[2] == frames.SECOND_MAGIC and data[3] in UNSOLICITED_COMMANDS:
         return "unsolicited"
     return "mismatch"

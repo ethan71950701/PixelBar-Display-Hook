@@ -165,7 +165,7 @@ class SceneSelectReplyTests(unittest.TestCase):
     def test_anything_else_that_differs_still_mismatches(self):
         expected = STEPS[0][2]
         for name, bad in [("sel", ef_reply(sel=2)), ("p5", ef_reply(p5=2)), ("p6", ef_reply(p6=3)), ("p7", ef_reply(p7=0x22)),
-                          ("other command", frames.build_frame(0x77, b"\x02", report_id=0x2F, tag=0xBB)),
+                          ("other command", frames.build_frame(0xD8, b"\x02", report_id=0x2F, tag=0xBB)),
                           ("tag", frames.build_frame(frames.CMD_SET_COLOR, bytes([1, 0xFF, 0xFF, 0xFF, 0, 1, 2, 0x21, 0xFF]), report_id=0x2F, tag=0xCC))]:
             with self.subTest(differs_in=name):
                 self.assertEqual(upload_replay.classify(bad, expected, colour_may_differ=True), "mismatch")

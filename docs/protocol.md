@@ -2075,6 +2075,102 @@ no retry. Cycle length segment start to next segment start: 45.84 s and 46.11 s 
 45.3 s; the difference is the 0.05-0.1 s the program takes between segments plus the slightly
 longer uploads).
 
+### Full 11-segment run, stopped at segment 3 (2026-10-26, 11:45-11:46)
+
+After the user's go-ahead (「開始」; TempoHub process count 0, `Hello` on the screen, quota 28 of 44,
+`--max-uploads 11`, the user filming) the run uploaded segments 1 and 2 completely and was **stopped by the first
+mismatching reply in segment 3**, as designed (no retry, nothing re-sent). Log `film_log.jsonl`:
+
+| Segment | Upload start (wall) | Upload end (wall) | Result |
+|---|---|---|---|
+| 1 (pictures 1-20) | 11:45:05.894 | 11:45:29.556 | 429/429 frames, 428 replies matched, 23.313 s |
+| 2 (pictures 21-40) | 11:45:51.644 | 11:46:15.237 | 429/429 frames, 428 replies matched, 23.312 s |
+| 3 (pictures 41-60) | 11:46:37.332 | 11:46:38.317 | **stopped at step 12** of 429: 13 frames written, 12 replies matched; the expected reply was the acknowledgement of data chunk 10 (`2fbbec17000400030 00a`...), the speaker sent `2fbbec7700010221` instead (command `77`, payload `02`, valid checksum); 0.734 s |
+
+Counter 31 of 44 (uploads 29, 30, 31). The pre-flight check, the ef frame (reply: current colour `ffffff`), the start frame
+and ten data acknowledgements of segment 3 were all as before. **What the stray frame is is not known**: the speaker is
+documented to send an unsolicited `77` with payload `02` at times (captures 04 and 08, just before the app's time
+synchronisation; guess: a request for the time), but never during an upload before; why it came exactly here (its
+timing 11:46:38, a time sync due, the user touching the speaker or the phone being moved, any other cause) is **not
+known** (no test, only the log). The upload code treats only unsolicited `ee` and `66` frames as ignorable; `77` is a mismatch,
+so the exchange stopped. The device was left with an incomplete upload of segment 3 (the start frame and 11 of 426 data
+chunks were written, no end frame): its screen state was not yet reported by the user (**not verified**); an official scene
+in TempoHub restores it. No rule was changed because of this; accepting `77` as ignorable would need the user's approval.
+
+**Second full run, stopped at segment 4 (11:54-11:56, same day, the user's 「开始」 after 「录影已经停了，11 段全部重来」).**
+Segments 1-3 went through completely (429/429 frames, 428 replies each; uploads 23.33, 23.28 and 23.30 s; upload starts
+11:54:18.109, 11:55:03.825 and 11:55:49.608, upload ends 11:54:41.717, 11:55:27.508 and 11:56:13.198; waits 22 s). Segment 4
+(pictures 61-80) started at 11:56:35.273 and was stopped at **step 5** (6 frames written, 5 replies matched, 0.359 s): the
+speaker sent **the same frame again, `2fbbec7700010221`** (`77`, payload `02`), instead of the acknowledgement of data
+chunk 3. The run stopped, nothing was retried or re-sent (counter **35 of 44**, uploads 32-35; the user was told what
+happened).
+
+Observation (**a coincidence of two events, not a measurement of a cause**): the two stray frames came at 11:46:38.3 and
+11:56:36.0, that is **597.7 s apart (about 10 minutes)**, and both fell into an upload. If the speaker sends `77` `02` about
+every 10 minutes (guess: it asks for a time synchronisation periodically; the captures 04/08 show it before the app's
+time sync), a run of 8.3 minutes will meet it with a probability of about 83% unless it is started shortly after one, and the strict
+rule (only `ee` and `66` are ignored) stops the run every time. Untested: the period, whether sending a time
+synchronisation (`77` with the date, as TempoHub does) stops the requests, whether the frame is harmless in the middle of an
+upload (the next acknowledgement may follow it, as with `ee`/`66`). No rule or code was changed because of it.
+
+**Rule change at the user's request** (「1要2還在，接著」, after being offered it): the exact frame `2fbbec7700010221` (the
+speaker's `77` with payload `02`, checksum included) is now recorded and ignored during an upload like the `ee` and `66` pushes
+(`TIME_REQUEST_PUSH` in `pixelbar/upload_replay.py`); any other `77`, another payload, a wrong checksum or any other command
+still stops the run (tests). The recording was still running, so the run was **continued with segments 4 to 11**
+(`--first-segment 4 --max-uploads 8`, no `Hello` shown first; quota 35 -> 43 of 44), log `film_log.jsonl`
+(the logs of the earlier runs were renamed `film_log_run*_...jsonl`):
+
+| Segment | Upload start | Upload end | Replies |
+|---|---|---|---|
+| 4 | 11:59:47.747 | 12:00:11.400 | 429/429, 428 matched, **1 unsolicited frame ignored** |
+| 5 | 12:00:33.536 | 12:00:57.399 | 429/429, 428 matched |
+| 6 | 12:01:19.509 | 12:01:43.149 | 429/429, 428 matched, **1 unsolicited frame ignored** |
+| 7 | 12:02:05.222 | 12:02:29.096 | 429/429, 428 matched |
+| 8 | 12:02:51.176 | 12:03:15.038 | 429/429, 428 matched |
+| 9 | 12:03:37.132 | 12:04:01.038 | 429/429, 428 matched |
+| 10 | 12:04:23.145 | 12:04:46.928 | 429/429, 428 matched |
+| 11 | 12:05:09.030 | 12:05:33.068 | 429/429, 428 matched |
+
+All eight uploads matched (23.4-23.6 s each), the run ended itself at 12:05:55.084 (`run_end`, 8 uploads, 367.4 s); counter **43 of
+44**. **My earlier guess (a `77` push about every 10 minutes) was wrong**: two more `77` frames came during segments 4 and 6
+(one in each; their exact times were not kept, only the count, so they lie between 11:59:47-12:00:11 and 12:01:19-12:01:43), that
+is 3 minutes 20 s and 1 minute 30 s after the earlier ones at 11:56:36.0, not 10. The four known `77` `02` frames (11:46:38.3,
+11:56:36.0, and one each in segments 4 and 6) are not periodic as far as seen; **why the speaker sends them is not known** (a time
+synchronisation request is only a guess from the captures 04/08; whether it happens when the phone is moved or the speaker touched
+was not tested). Nothing was sent in answer to them. The screen showed no problem in the recording (not yet looked at).
+
+### The whole Bad Apple filmed and edited (2026-10-26)
+
+The user's long recording (`20261026_115327.mp4`, normal video mode, 1280x720, 30 fps, 798.8 s, 2.4 GB, in `Downloads`,
+not in the repository) covers the second full run (segments 1-3, 11:54:18-11:56:13), the stop and the failure screen, and the continued
+run (segments 4-11, until 12:05:55). The start of the recording is on purpose the computer's monitor (user: 「電腦螢幕但是故意的」),
+the phone is held still until 20.4 s and then moved down to the speaker's screen between 20.4 s and about 25 s (measured from the
+frame differences). **Seen on the speaker's screen in the recording (confirmed): after the stopped upload (segment 4, 11:56:36) the
+speaker itself shows 「图片传输失败，请重新上传」 ("picture transfer failed, please upload again") about a minute later (at 200 s of
+the video, 11:57:38)** — the user's 「圖片傳輸失敗請重新上傳」 was this text. Also confirmed: the scene loops (pictures 1-20 again and
+again) until the next upload starts, the text 「图片上传中」 follows with changing dots.
+
+Mapping of the log (the computer's clock, both logs by wall time) to the video: the 1-second picture grids of segments 2-11 fix it to
+about 0.03 s up to a whole second (concentration R 0.35-0.88, offsets -0.09 to -0.19 s around the best fit, the same for the first
+and the second run, which shows that the wall clock of the computer is the common reference); the whole second was chosen with the
+appearance of the upload text of segment 2 at about 43.5 s (its upload started 45.72 s after the first upload start; so the video
+second of the first upload start is -2.77, i.e. the recording began 2.77 s after the first upload started) and the first picture
+seen at 24 s being picture 4. The text appeared about 0.5 s after the log's upload start in this recording (about 0 s in the
+earlier one): the latency of the upload text is not constant (not explained). The anchor used: **-2.77 s**; windows (video
+seconds): segment 1 20.84-40.84, 2 66.63-86.63, 3 112.32-132.32, 4 350.52-370.52, 5 396.52-416.52, 6 442.27-462.27, 7 488.22-508.22,
+8 534.16-554.16, 9 580.16-600.16, 10 626.05-646.05, 11 672.19-692.19. Opening: the video from 19.40 s (1.4 s of the still monitor, then the
+pan to the speaker while segment 1 already plays; user's wish: 「影片剛開始就是要對著電腦螢幕然後慢慢滑到我們音箱那邊」, the long still part
+cut away) to 20.84 s, no music, the original video on its first picture.
+
+Result `C:\pixelbar-raw\badapple\final_bad_apple_filmed.mp4` (outside the repository): H.264 1280x1440 (the recording on top, the
+original Bad Apple video below it, in step), 30 fps, **221.45 s** (1.44 s opening + 220.0 s), AAC audio **220.52 s**: the music of the
+original video from its second 0 (the recording's own sound is not in it); the original's audio is 219.08 s long, so the last 0.9 s are
+silent. Written in 857 s (seeking to each window; the 800-s, 2.4-GB recording; the second of two passes over the original video for the
+lower half). Checked by looking at frames at 0.5, 1.3, 2.5, 5, 25, 60, 110, 150 and 221 s: the pan from the monitor to the speaker, and
+at every sampled second the lit picture of the speaker is the same picture as the original below it (silhouette of the same shape and
+polarity); no upload text in the sampled frames. Not checked: every second of the 221 s (frame by frame), the sound against the picture
+by ear, the exact join of the windows.
+
 ### Post-processing of the redo recording (2026-10-26)
 
 The user's phone recording (normal video mode, 1280x720, 30 fps, 257.2 s, 778 MB, in

@@ -315,7 +315,7 @@ def make_uploader(files, xx=XX, open_device=device.open_device, log=print):
 QUESTIONS = ("Is TempoHub fully closed (also in the system tray)? [y/N] ",
              "Is the phone recording in the NORMAL video mode (not slow motion), already running, and can it see the screen? [y/N] ",
              "Does the screen show Hello right now? [y/N] ")
-TRIAL_MAX_UPLOADS = 3                 # the most a one-run send may make (the user's trial limit)
+MAX_RUN_UPLOADS = 11                  # the most one --send run may make: one whole video of 220 pictures (the default stays 3)
 
 
 def tempohub_running():
@@ -390,9 +390,12 @@ def send_allowed(args):
 
 def real_run(args, files, p):
     """The 3-segment trial: checks, three questions, then the uploads one after the other. Nothing is remembered afterwards."""
-    if args.max_uploads > TRIAL_MAX_UPLOADS:
-        raise SystemExit(f"error: a run with --send makes at most {TRIAL_MAX_UPLOADS} uploads; --max-uploads {args.max_uploads} is refused")
-    chosen = segments(len(files))[: args.max_uploads]
+    if args.max_uploads > MAX_RUN_UPLOADS:
+        raise SystemExit(f"error: a run with --send makes at most {MAX_RUN_UPLOADS} uploads; --max-uploads {args.max_uploads} is refused")
+    first = max(1, getattr(args, "first_segment", 1))
+    chosen = segments(len(files))[first - 1: first - 1 + args.max_uploads]       # --first-segment N resumes at segment N
+    if not chosen:
+        raise SystemExit(f"error: there is no segment {first}; nothing was sent")
     if not p["trial_fits"]:
         raise SystemExit(f"error: the quota is {p['used']} of {p['total_limit']} used, {p['available']} left, the run needs {p['trial_uploads']}; "
                          "nothing was sent (only you change limits.json)")
@@ -430,7 +433,7 @@ def real_run(args, files, p):
 
     stop = (lambda: os.path.exists(stop_file)) if stop_file else (lambda: False)
     print(f"log: {log_path}; to stop, create the file {stop_file or '(no stop file given)'}")
-    result = run_film(segments(len(files)), make_uploader(files, log=lambda line: None), time.sleep, log, args.max_uploads,
+    result = run_film(chosen, make_uploader(files, log=lambda line: None), time.sleep, log, args.max_uploads,
                       describe=describe, stop_requested=stop)
     if not result["ok"]:
         print(f"STOPPED after {result['done']} upload(s): {result['stopped']}. Nothing was retried and nothing more was sent. "
@@ -501,6 +504,7 @@ def add_arguments(sub):
         q.add_argument("--pictures", type=int, default=0, help="plan for N pictures instead of counting the PNG files")
         q.add_argument("--max-uploads", type=int, default=DEFAULT_MAX_UPLOADS, help=f"hard limit of uploads in one run (default {DEFAULT_MAX_UPLOADS})")
     r.add_argument("--rehearse", action="store_true", help="print the timeline on a virtual clock; sends nothing")
+    r.add_argument("--first-segment", type=int, default=1, help="start with this segment (1-based), e.g. 3 to continue a run that was stopped there")
     r.add_argument("--send", action="store_true", help="really upload (3 segments at most); needs --this-run-only and the three confirmations")
     r.add_argument("--this-run-only", action="store_true", help="enable sending for this one run (SEND_ENABLED in the code stays False)")
     r.add_argument("--yes-tempohub-closed", action="store_true")

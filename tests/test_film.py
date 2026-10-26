@@ -328,7 +328,7 @@ class RealRunTests(unittest.TestCase):
                 with self.subTest(missing=missing):
                     args = [a for a in self.yes if a != missing]
                     self.assertIn("not confirmed", self.run_cli(*args, expect_exit=True))
-        self.assertIn("at most 3 uploads", self.run_cli(*self.yes, "--max-uploads", "4", expect_exit=True))
+        self.assertIn("at most 11 uploads", self.run_cli(*self.yes, "--max-uploads", "12", expect_exit=True))
         self.running = True
         self.assertIn("still running", self.run_cli(*self.yes, expect_exit=True))
         self.assertEqual((self.uploads, self.sleeps), ([], []))
@@ -391,6 +391,13 @@ class RealRunTests(unittest.TestCase):
         self.assertEqual(len(summaries), 3)
         self.assertTrue(all("XX XX 0x01f4" in s and "lit share" in s and "hash" in s for s in summaries))
         self.assertFalse(film.SEND_ENABLED)
+
+    def test_a_stopped_run_can_be_continued_from_a_later_segment(self):
+        text = self.run_cli(*self.yes, "--first-segment", "3", "--max-uploads", "3")
+        self.assertEqual(self.uploads, [3, 4, 5])                        # segments 3, 4, 5 only: nothing earlier is sent again
+        self.assertIn("3 upload(s) done", text)
+        self.assertIn("there is no segment 9", self.run_cli(*self.yes, "--first-segment", "9", expect_exit=True))
+        self.assertEqual(self.uploads, [3, 4, 5])
 
     def test_the_stop_file_stops_the_run(self):
         stop = os.path.join(self.dir.name, "stop")
@@ -505,6 +512,64 @@ class PostTests(unittest.TestCase):
         anchor = film_post.guess_anchor(times, vectors)
         self.assertAlmostEqual(anchor, 4.0, delta=0.1)
         self.assertIsNone(film_post.guess_anchor(times[:100], vectors[:100]))
+
+    def test_several_logs_are_joined_by_the_wall_clock(self):
+        def ev(event, seg, wall, t, **kw):
+            return {"event": event, "segment": seg, "wall": wall, "t": t, **kw}
+
+        first = [ev("upload_start", 1, "2026-10-26T12:00:00.000", 0.0), ev("upload_end", 1, "2026-10-26T12:00:23.300", 23.3, ok=True),
+                 ev("upload_start", 2, "2026-10-26T12:00:45.300", 45.3), ev("upload_end", 2, "2026-10-26T12:01:08.600", 68.6, ok=True),
+                 ev("upload_start", 3, "2026-10-26T12:01:30.600", 90.6), ev("upload_end", 3, "2026-10-26T12:01:31.500", 91.5, ok=False)]
+        second = [ev("upload_start", 3, "2026-10-26T12:03:00.000", 0.0), ev("upload_end", 3, "2026-10-26T12:03:23.400", 23.4, ok=True)]
+        wins = film_post.windows(first + second, anchor=10.0)
+        self.assertEqual([w[0] for w in wins], [1, 2, 3])                                 # the failed upload of segment 3 has no window
+        self.assertEqual(wins[0], (1, 33.3, 53.3))                                        # end of upload 1 = 23.3 s after the first start
+        self.assertEqual(wins[2], (3, 10.0 + 203.4, 10.0 + 223.4))                        # segment 3 of the second log: 3 min 23.4 s after
+        with tempfile.TemporaryDirectory() as folder:
+            paths = []
+            for k, events in enumerate((first, second)):
+                paths.append(os.path.join(folder, f"log{k}.jsonl"))
+                with open(paths[-1], "w", encoding="utf-8") as fh:
+                    fh.write("\n".join(json.dumps(e) for e in events) + "\n")
+            self.assertEqual(film_post.windows(film_post.read_logs(paths), anchor=10.0), wins)
+
+    @unittest.skipIf(av is None, "PyAV or Pillow is not installed")
+    def test_the_original_video_goes_under_the_recording_in_step(self):
+        def make(path, seconds, size, fps, grey_of):
+            with av.open(path, "w", format="mp4") as container:
+                video = container.add_stream("mpeg4", rate=fps)
+                video.width, video.height, video.pix_fmt = size[0], size[1], "yuv420p"
+                video.bit_rate = 2_000_000
+                for i in range(seconds * fps):
+                    g = grey_of(i / fps)
+                    for packet in video.encode(av.VideoFrame.from_image(Image.new("RGB", size, (g, g, g)))):
+                        container.mux(packet)
+                for packet in video.encode():
+                    container.mux(packet)
+
+        with tempfile.TemporaryDirectory() as folder:
+            rec, mv, out = (os.path.join(folder, n) for n in ("rec.mp4", "mv.mp4", "out.mp4"))
+            make(rec, 8, (64, 48), 20, lambda t: 200)                               # the recording: constant light grey
+            make(mv, 6, (48, 36), 30, lambda t: int(20 + 30 * t))                  # the original: its brightness is its own time
+            count = film_post.concat(rec, [(1, 2.0, 5.0)], out, mv_below=mv, music_start=0.0)
+            self.assertAlmostEqual(count, 60, delta=3)                              # 3 s at 20 fps
+            with av.open(out) as c:
+                frames = list(c.decode(c.streams.video[0]))
+            self.assertEqual((frames[0].width, frames[0].height), (64, 96))         # recording on top, the original below, the same width
+            first, last = frames[1].to_image().convert("L"), frames[-2].to_image().convert("L")
+            self.assertGreater(first.getpixel((32, 20)), 150)                       # top half: the recording
+            self.assertLess(first.getpixel((32, 70)), 90)                           # bottom half: the original at its start (grey ~20)
+            self.assertGreater(last.getpixel((32, 70)), 90)                         # ... and at its 3rd second (grey ~110): it plays on, not frozen
+            self.assertLess(first.getpixel((2, 70)), 40)                            # the 48x36 original is fitted into 64x48 with black bars
+            self.assertEqual(frames[3].pts is not None, True)
+            # an opening (lead): the original stays on its first picture while the recording runs, then plays in step
+            out2 = os.path.join(folder, "out2.mp4")
+            film_post.concat(rec, [(0, 1.0, 2.0), (1, 2.0, 5.0)], out2, mv_below=mv, music_start=0.0, lead=1.0)
+            with av.open(out2) as c:
+                frames2 = [f.to_image().convert("L") for f in c.decode(c.streams.video[0])]
+            self.assertAlmostEqual(len(frames2), 80, delta=3)                              # 1 s opening + 3 s
+            self.assertLess(abs(frames2[2].getpixel((32, 70)) - frames2[15].getpixel((32, 70))), 12)   # frozen on its first picture during the opening
+            self.assertGreater(frames2[-2].getpixel((32, 70)), frames2[22].getpixel((32, 70)) + 25)    # and playing afterwards
 
     @unittest.skipIf(av is None, "PyAV or Pillow is not installed")
     def test_the_music_replaces_the_sound_of_the_recording_and_the_cut_is_reached_by_seeking(self):
