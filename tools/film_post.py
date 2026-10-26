@@ -97,8 +97,39 @@ def check_windows(wins, duration):
     return problems
 
 
-def concat(video_path, wins, out_path):
-    """Write the windows one after the other into out_path (frames re-encoded, their spacing kept, nothing sped up)."""
+def mux_music(dst, out, music_path, start, seconds):
+    """Decode the audio of `music_path` from `start` for `seconds`, encode it into the audio stream `out` of `dst`."""
+    import av
+    from fractions import Fraction
+    resampler = av.AudioResampler(format="fltp", layout="stereo", rate=out.rate)
+    needed, written = int(round(seconds * out.rate)), 0
+    with av.open(music_path) as msrc:
+        a = msrc.streams.audio[0]
+        if start > 0:
+            msrc.seek(int(start / float(a.time_base)), stream=a, backward=True)
+        for frame in msrc.decode(a):
+            if frame.pts is not None and float(frame.pts * a.time_base) + frame.samples / frame.sample_rate <= start:
+                continue
+            for piece in resampler.resample(frame):
+                piece.pts, piece.time_base = written, Fraction(1, out.rate)
+                written += piece.samples
+                for packet in out.encode(piece):
+                    dst.mux(packet)
+            if written >= needed:
+                break
+        for packet in out.encode():
+            dst.mux(packet)
+    return written / out.rate
+
+
+def concat(video_path, wins, out_path, music=None, music_start=0.0):
+    """Write the windows one after the other into out_path (frames re-encoded, their spacing kept, nothing sped up).
+
+    The sound of the recording is never copied. With `music` (a video or audio file) the sound of that file from `music_start`
+    seconds on, as long as the joined windows, is put under the pictures: for 1 picture per second of a video, segment 1..n in
+    order, that is the original music of the same seconds.
+    Each window is reached by seeking to the keyframe before it, so a long recording is not decoded from its start every time.
+    """
     import av
     with av.open(video_path) as src, av.open(out_path, "w") as dst:
         stream = src.streams.video[0]
@@ -109,21 +140,31 @@ def concat(video_path, wins, out_path):
             out_stream = dst.add_stream("mpeg4", rate=rate)
             out_stream.bit_rate = 8_000_000                               # mpeg4 refuses to open at 1280x720 without one
         out_stream.width, out_stream.height, out_stream.pix_fmt = stream.codec_context.width, stream.codec_context.height, "yuv420p"
+        audio_out = None
+        if music:
+            audio_out = dst.add_stream("aac", rate=44100)
+            audio_out.layout = "stereo"
         index = 0
-        for frame in src.decode(stream):
-            if frame.pts is None:
-                continue
-            t = float(frame.pts * stream.time_base)
-            if not any(b <= t < e for _, b, e in wins):
-                continue
-            new = av.VideoFrame.from_image(frame.to_image())
-            new.pts = index
-            new.time_base = 1 / rate
-            index += 1
-            for packet in out_stream.encode(new):
-                dst.mux(packet)
+        for _, b, e in wins:
+            src.seek(max(0, int((b - 2.0) / float(stream.time_base))), stream=stream, backward=True)
+            for frame in src.decode(stream):
+                if frame.pts is None:
+                    continue
+                t = float(frame.pts * stream.time_base)
+                if t < b:
+                    continue
+                if t >= e:
+                    break
+                new = av.VideoFrame.from_image(frame.to_image())
+                new.pts = index
+                new.time_base = 1 / rate
+                index += 1
+                for packet in out_stream.encode(new):
+                    dst.mux(packet)
         for packet in out_stream.encode():
             dst.mux(packet)
+        if audio_out is not None:
+            mux_music(dst, audio_out, music, music_start, sum(e - b for _, b, e in wins))
     return index
 
 
@@ -135,6 +176,9 @@ def main(argv=None):
     ap.add_argument("--lead", type=float, default=0.0)
     ap.add_argument("--trim", type=float, default=0.0)
     ap.add_argument("--write", metavar="OUT.mp4", default=None)
+    ap.add_argument("--music", metavar="MV.mp4", default=None,
+                    help="put the sound of this file under the pictures (the sound of the recording is always dropped)")
+    ap.add_argument("--music-start", type=float, default=0.0, help="second of the music file where the first picture is (default 0)")
     args = ap.parse_args(argv)
     events = read_log(args.log)
     import av
@@ -157,7 +201,7 @@ def main(argv=None):
     if args.write:
         if guessed or problems:
             sys.exit("not writing: confirm the anchor with --anchor and fix the problems first")
-        print(f"wrote {concat(args.video, wins, args.write)} frames to {args.write}")
+        print(f"wrote {concat(args.video, wins, args.write, args.music, args.music_start)} frames to {args.write}")
     else:
         print("plan only: nothing was written (add --write OUT.mp4 with a confirmed --anchor)")
 

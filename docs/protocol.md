@@ -2105,6 +2105,19 @@ of them, the first pictures of each segment are the dark opening pictures of the
 pictures, as the frame lists say. The tool's first write attempt failed (`mpeg4` could not be opened at 1280x720 without a
 bit rate); it now uses `libx264` and falls back to `mpeg4` with a bit rate.
 
+After the draft the user said it looked normal and readable but a little blurry (「看起來都挺正常的 … 能看出來但是感覺有點糊」)
+and that the recording will be redone. Two changes asked for the cutting: **drop the sound of the recording and lay the music of
+the original video under the pictures** (`film_post.py --music "Bad Apple ... .mp4"`; the music file is read from `Downloads`, not
+copied into the repository): 1 picture per second of the video means segments 1..n in order are the MV's seconds 0..20n, so the
+sound is taken from second 0 for as long as the joined windows (`--music-start` for another start). Checked on the existing
+recording: `draft_3segments_music.mp4`, 60.0 s of video (H.264) and 60.0 s of audio (AAC), the loudness envelope of its sound has a
+correlation of 0.993 with the first 60 s of the MV (the recording's own sound is not in it). Each picture is the video's frame at
+the start of its second and stays for one second, so the picture can be up to half a second ahead of or behind the music
+(a property of 1 picture per second, not measured further). **Cutting time**: the windows are now reached by seeking to the
+keyframe before each; the 60-s draft with music took 94 s from the 257-s, 778 MB recording (before the seek change about 3 minutes
+of decoding for the video alone were needed); for 11 segments (220 s of output from about 8.5 minutes of recording, probably
+1.5-2 GB at this bit rate) about 3-6 minutes are to be expected (an estimate, not measured).
+
 Not checked: that the joins look smooth to the eye (the user decides from the draft), the exact picture at the cut
 (an edge of up to one camera frame = 33 ms), and the quality of the picture of a 43x32-pixel block on a 720p recording.
 

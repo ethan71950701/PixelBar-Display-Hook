@@ -507,6 +507,71 @@ class PostTests(unittest.TestCase):
         self.assertIsNone(film_post.guess_anchor(times[:100], vectors[:100]))
 
     @unittest.skipIf(av is None, "PyAV or Pillow is not installed")
+    def test_the_music_replaces_the_sound_of_the_recording_and_the_cut_is_reached_by_seeking(self):
+        import array
+        import math as m
+        from fractions import Fraction
+
+        def make(path, seconds, tone, fps=20):
+            """A generated video of `seconds` with a tone (amplitude 0 = silence) as sound."""
+            with av.open(path, "w", format="mp4") as container:
+                video = container.add_stream("mpeg4", rate=fps)
+                video.width, video.height, video.pix_fmt = 64, 48, "yuv420p"
+                audio = container.add_stream("aac", rate=44100)
+                audio.layout = "stereo"
+                for i in range(seconds * fps):
+                    grey = min(255, i + 20)
+                    for packet in video.encode(av.VideoFrame.from_image(Image.new("RGB", (64, 48), (grey, grey, grey)))):
+                        container.mux(packet)
+                for packet in video.encode():
+                    container.mux(packet)
+                n = 0
+                for _ in range(seconds * 44100 // 1024):
+                    samples = array.array("h")
+                    for k in range(1024):
+                        v = int(tone * m.sin(2 * m.pi * 440 * (n + k) / 44100)) if tone else 0
+                        samples.extend((v, v))
+                    frame = av.AudioFrame(format="s16", layout="stereo", samples=1024)
+                    frame.sample_rate = 44100
+                    frame.planes[0].update(samples.tobytes())
+                    frame.pts, frame.time_base = n, Fraction(1, 44100)
+                    n += 1024
+                    for packet in audio.encode(frame):
+                        container.mux(packet)
+                for packet in audio.encode():
+                    container.mux(packet)
+
+        def loudness(path):
+            with av.open(path) as c:
+                a = c.streams.audio[0]
+                resampler = av.AudioResampler(format="s16", layout="stereo", rate=44100)
+                values = array.array("h")
+                for frame in c.decode(a):
+                    for piece in resampler.resample(frame):
+                        values.frombytes(bytes(piece.planes[0])[: piece.samples * 4])
+                return (sum(v * v for v in values) / max(1, len(values))) ** 0.5, len(values) / 2 / 44100
+
+        with tempfile.TemporaryDirectory() as folder:
+            recording, mv, out, silent = (os.path.join(folder, n) for n in ("rec.mp4", "mv.mp4", "out.mp4", "silent.mp4"))
+            make(recording, 10, tone=0)                                   # the recording's own sound: silence here, but it must not be used
+            make(mv, 8, tone=12000)
+            wins = [(1, 1.0, 3.0), (2, 6.0, 8.0)]
+            film_post.concat(recording, wins, silent)
+            with av.open(silent) as c:
+                self.assertEqual(len(c.streams.audio), 0)                  # no music requested: the recording's sound is dropped, nothing else added
+            count = film_post.concat(recording, wins, out, music=mv, music_start=0.0)
+            self.assertAlmostEqual(count, 80, delta=3)                      # the windows were reached by seeking
+            with av.open(out) as c:
+                self.assertEqual(len(c.streams.audio), 1)
+                self.assertAlmostEqual(float(c.duration) / 1e6, 4.0, delta=0.3)
+                greys = [f.to_image().convert("L").getpixel((32, 24)) for f in c.decode(c.streams.video[0])]
+            self.assertLess(greys[0], 60)                                    # the first window (t = 1 s)
+            self.assertGreater(greys[-1], 130)                               # the second window (t = 8 s)
+            rms, seconds = loudness(out)
+            self.assertGreater(rms, 3000)                                    # the music of the mv, not the recording's silence
+            self.assertAlmostEqual(seconds, 4.0, delta=0.3)                  # as long as the pictures (the speed of nothing changed)
+
+    @unittest.skipIf(av is None, "PyAV or Pillow is not installed")
     def test_concat_keeps_the_speed_of_a_generated_video(self):
         with tempfile.TemporaryDirectory() as folder:
             src, dst = os.path.join(folder, "in.mp4"), os.path.join(folder, "out.mp4")
