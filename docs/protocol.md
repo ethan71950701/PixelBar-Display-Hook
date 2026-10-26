@@ -1891,10 +1891,132 @@ the four measurements: larger value = slower, roughly 2 ms per unit from 100
 upward; the exact function below 100 is not known. This is a fit to measured
 points, not a documented formula.
 
-Not known: values above 300 (the code allows up to `0190` = 400, about 0.8 s
-predicted); whether very small or large values are safe for the speaker; what
-`ffff` means. Values outside `0010`-`0190` stay refused by the code; any value
-of an unknown field needs the user's approval for each use.
+#### Fifth value: `XX XX` = `0190` (upload 20, 2026-10-26, user-approved)
+
+The user asked for a larger value, because small values may be affected by
+rounding or by the speaker itself (their explanation for the small-end
+deviation; not verified). Same 2-picture animation, only `XX XX` = `0x0190`
+(400, the largest the code allows). 46/46 frames, 45 replies, all matched,
+2.67 s. The user's video `20261026_074331.mp4` (120 fps at 0.25x, 31.3 s file
+time): 10 brightness dips from 1.78 s to 30.60 s (file time; the event pairs
+of the picture changes sit at the same moments), 9 intervals, mean 3.202 s of
+file time = **0.8005 s per picture** (about 1.25 pictures per second; one loop
+about 1.6 s). Prediction before sending (2 ms x 400): 0.800 s.
+
+| `XX XX` | time per picture | ms per unit |
+|---|---|---|
+| `0018` = 24 | 0.0400 s | 1.67 |
+| `0030` = 48 | 0.0902 s | 1.88 |
+| `0064` = 100 | 0.2025 s | 2.03 |
+| `012c` = 300 | 0.5996 s | 2.00 |
+| `0190` = 400 | 0.8005 s | 2.001 |
+
+So from 100 up the time per picture is 2 ms x `XX XX` within about 1% (three
+points: 100, 300, 400); the prediction for 400 was met. The small end (24, 48)
+is faster than that. Whether the small-end deviation is the speaker's or a
+measuring effect is still open: the figures at 24 and 48 are means over 87 and
+59 changes, so noise from the camera frame is small, and the TempoHub scene
+上岸 (`0030`) gave the same 0.090 s as the generated animation, but at 24 the
+changes were found as brightness dips, not as a change of the picture.
+
+Not known: values above 400 (none has been tried; the code refuses them);
+whether very small or large values are safe for the speaker; what `ffff`
+means; where the field ends (it is two bytes). Values outside `0010`-`0190` stay refused by the code; any
+value of an unknown field needs the user's approval for each use.
+
+## Limits: what the captures and the live tests say about sizes (read-only analysis, 2026-10-26)
+
+Nothing was sent for this section. Tools: `python tools/analyze_replies.py
+C:\pixelbar-raw` (every device-to-host frame of all 28 captures, per command:
+payload, which host command preceded it, which byte offsets ever vary; needs
+tshark) and `python tools/boundaries.py` (arithmetic only). The captures hold
+489 device-to-host frames and 513 host-to-device frames; every checksum is
+right.
+
+### 1. Device replies that could mean a size, a count or a buffer
+
+The device-to-host commands are `17` (uploads, 395 frames), `65 66 68 6a 77 84
+86 87 c6 c8 c9 d5 d7 d8 f0` (start-up queries, captures 01 and 06 only, plus
+`66`/`77` also elsewhere), `e7`, `e8`, `ee`, `ef`. There is no reply anywhere
+that is documented or seen to carry "free space", "scene count left" or "maximum
+pictures"; no query was sent after an upload; the speaker never reports a
+remaining size after the end frame (`00 05`, no data). The candidates below are
+only numbers that could be sizes. Offsets are payload offsets (frame offset =
+payload offset + 6).
+
+| Command | Payload (reply) | Offset: value | Reading | Status |
+|---|---|---|---|---|
+| `17` ready (reply to the start frame) | `00 01 00 32` (all 8 captures, and every upload we sent) | 2-3: `0x0032` = 50 | chunk size: the host cut the data into 50-byte chunks in all 8 TempoHub uploads and all of ours, each acknowledged | **confirmed** that 50-byte chunks are accepted; that the speaker *announces* the size with these bytes: guess (never saw another value; no other chunk size was ever tried) |
+| `17` acknowledgement | `00 03 NN NN` | 2-3: chunk number (captures: up to `0x0093` = 147; our uploads: up to `0x01a8` = 424) | chunk number, two bytes | **confirmed** two bytes: the speaker answered `00 03 01 a8` ... in our 20-picture uploads |
+| `65` | `02 00 00 40` (captures 01, 06) | 2-3: `0x0040` = 64 big-endian, or `0x4000` = 16384 little-endian | 64 = the report size of the vendor collection (`63` bytes of data + report id) or the largest packet; 16384 = 16 KiB of something | **guess**, no evidence for either. 16384 as the capacity of one scene is contradicted by the live uploads: 21280 bytes were accepted, acknowledged and all 20 pictures were shown (user-confirmed); if it is a capacity it is of something else |
+| `d8` | `00 00 01 05 01 01 01 00 01 00 01 01 0a 0e 0a 00 31 a0 00 83 00 30 00 00 00 a0 08` (27 B, the same 4 times) | 16-17: `0x31a0` = 12704; 18-19: `0x0083` = 131; 20-21: `0x0030` = 48; 24-25: `0x00a0` = 160; 12-14: `0a 0e 0a` = 10, 14, 10 | unknown table; the "capability table" in the earlier table is a guess | **guess only**. Remark: 160 is the number of records of a 20-picture upload (8 per picture) and the number of pictures we stopped at, 20; and `0x0030` is also one of the `XX XX` values TempoHub uses. Both could be coincidences. No test separates them yet |
+| `e7` (read the text back) | `00 10 32 LL text` (12 frames, 7 captures; `00 20 32 ...` once) | 2: `0x32` = 50 in every reply; 3: `LL` = text byte count (confirmed, captures 07-09) | `0x32` could be "at most 50 text bytes" | **guess**. Against it as an enforced limit: a 55-byte text was acknowledged and shown completely in scroll mode (live length tests) |
+| `6a` | 44 bytes, identical every time | repeated groups `3c 0a` / `3c ff` after indexes 02..07 | a table with a number 60 (`0x3c`) and 10 per entry | unknown, no size-like field recognised |
+| `c8` | `c8 24 78 bb c6 6f` | all 6 | address-like | guess |
+| `c9` | UTF-8 text `花再 Halo PixelBar` | all 20 | device name | **confirmed** (decodes as text) |
+| `c6` | `01 03 06` | 0-2 | a version? | guess |
+| `ee` | 12 bytes, 6 distinct (mode/colour state) | see the display-mode section | state, not a size | confirmed as state, see above |
+| `66`, `77`, `84`, `86`, `87`, `d5`, `d7`, `68`, `f0` | 1-3 bytes | `66`: `10 0b` / `10 08`; `77`: `01` or `02`; `84`: `05 01`; `86`: `0e 01 01`; `87`: `02 02 01`; `d5`: `00`; `d7`: `01 01`; `68`: `00`; `f0`: `1a ff 01` | small values | no size-like field recognised; meanings unknown |
+
+What the live uploads add (user-confirmed): 20 pictures, 160 records, 21280 bytes,
+426 chunks were accepted, all replies matched, and the speaker showed all 20 pictures
+in order (20 pictures of the generated animation and of the video frames). So the
+capacity of the scene slot is at least 20 pictures / 21280 bytes. The upper limit
+is **not known**; nothing above 20 pictures has been sent (and the code refuses
+more than 20).
+
+### 2. The record header `T 00 NN XX XX`
+
+- The header is **5 bytes**, not 6: `T`, a two-byte field `00 NN`, then `XX XX`
+  (so `0x0064` appears as the bytes `00 64`). This is confirmed: 133 = 5 + 128
+  for every record, and the builder reproduces the captured uploads byte for
+  byte. (A header written as `T 00 NN 00 XX XX` with an extra `00` after `NN`
+  would have 6 bytes and does not match the captures; the `00` before `64` is
+  the high byte of `XX XX`.)
+- Is `NN` one byte, or is `00 NN` a two-byte index? The captures cannot say:
+  byte 1 is `00` in every record of every upload, and the largest index ever
+  seen in a capture is 55 (capture 33, 56 records). Our own uploads went to
+  index 159 (`00 9f`, 20 pictures), still below 256, and worked. **No
+  evidence** either way. Not tested: an index of 256 or more.
+- What the boundary means: 8 records per picture, so **32 pictures = 256
+  records = indexes 0..255**, the last picture a one-byte index can address.
+  A 33rd picture needs index 256: with a two-byte index (`01 00`) it is
+  addressable; with a one-byte index it wraps or is refused. Which one the
+  speaker does is unknown; so is whether the speaker uses the index at all
+  (we know only that the records were sent in order, 0.. without gaps).
+  The total-size boundary comes before it: see below (30 pictures stay under
+  32767 bytes; 32 pictures are 34048 bytes).
+
+### 3. Boundaries beyond 20 pictures (arithmetic: `python tools/boundaries.py`)
+
+One picture = 1024 bytes of image = 8 records = 1064 bytes in the upload (the
+size the start frame declares); 21.28 chunks of 50 bytes. These are the points
+where a field or a size would run out, not facts about the speaker:
+
+| Boundary | Pictures that stay below it | Next picture needs | Status |
+|---|---|---|---|
+| 16 KiB (16384 bytes) total | 15 (15960 B) | 17024 B | **passed**: 20 pictures (21280 B) worked |
+| Total 32767 (`0x7fff`) / 32768 | 30 (31920 B) | 32984 B (31 pictures) | not tested; relevant if the size is a signed 16-bit number |
+| Total 65535 (`0xffff`) / 65536 | 61 (64904 B) | 65968 B (62 pictures) | not tested; relevant if the size is a 16-bit number (the start frame has a 32-bit field, `00 00` + four bytes; its upper bytes were always 0 in all uploads) |
+| Record index 127 / 128 (signed byte) | 16 | 17th picture (index 128) | **passed**: 20 pictures (indexes up to 159) worked, so a signed one-byte index caused no trouble (if the speaker uses the index at all) |
+| Record index 255 (one byte) | 32 (34048 B, 256 records) | 33rd picture (index 256) | not tested |
+| Chunk number 255 (one byte) | 12 (256 chunks) | 13 pictures = 277 chunks | **ruled out**: our uploads used chunk numbers up to 425 and the speaker acknowledged `00 03 01 a8` ... (two bytes) |
+| Chunk number 65535 (two bytes) | 3079 | 3080 | theoretical; the upload would take about 50 minutes at 46 ms per chunk |
+| This repository's own limit | 20 (426 chunks, 21280 B, 429 frames) | 21 | set by us (`MAX_SLIDES`), not by the speaker |
+
+Frames of an upload = 1 `ef` + 1 start + one per chunk + 1 end (20 pictures:
+429; 30 pictures: 642; 32: 684; 62: 1323). The exchange time limit in the code
+(`total_limit_for`) grows with the chunks (57 s for 20 pictures; 82 s for 30).
+
+### What an experiment beyond 20 pictures could show (not done, needs the user's approval)
+
+Pictures 21-30 stay below 32767 bytes and below index 255, so the first useful
+steps are 21 pictures (168 records; tests the `d8` candidate 160), then 30
+(31920 B; the last size below 32767), then 31 and 32 (34048 B; index 255
+exactly); 33 pictures would be the first with a two-byte index. Each step is a
+real upload (one budget unit, the usual limits). The code has to be changed to
+allow it (`MAX_SLIDES`, `testanim` makes only 20 pictures). The speaker may
+refuse, truncate, play fewer pictures or misbehave; none of that is known.
 
 ## Unknown fields in the scene upload, and the risk of changing them
 
